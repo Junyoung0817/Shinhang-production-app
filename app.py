@@ -2,52 +2,314 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import copy
+import time
 
 # 1. 페이지 설정
-st.set_page_config(page_title="신항공장 생산관리", layout="wide")
+st.set_page_config(page_title="신항공장 통합 관리 System", layout="wide")
 
-# 2. 데이터 초기화 함수
-def init_data():
-    # 탱크 스펙 정의
-    tank_specs = {
-        'TK-310':   {'max': 750},
-        'TK-710':   {'max': 760},
-        'TK-720':   {'max': 760},
-        'TK-6101':  {'max': 5700},
-        'UTK-308':  {'max': 5400},
-        'UTK-1106': {'max': 6650}
-    }
-    
-    # 기본 데이터 구조
-    default_vals = {
-        'qty': 0.0, 'av': 0.0, 'water': 0, 
-        'metal': 0, 'p': 0, 'org_cl': 0, 'inorg_cl': 0
-    }
-    
-    # 세션 상태 초기화
-    if 'daily_db' not in st.session_state:
-        st.session_state.daily_db = {}
-    
-    return tank_specs, default_vals
+# ---------------------------------------------------------
+# 2. 초기 설정 및 데이터 정의
+# ---------------------------------------------------------
 
-# 3. 날짜별 데이터 가져오기
-def get_data(date_key, tank_specs, default_vals):
-    # DB에 없으면 생성
-    if date_key not in st.session_state.daily_db:
-        # 전날 데이터 확인
-        date_obj = datetime.strptime(date_key, "%Y-%m-%d")
-        prev_date = (date_obj - timedelta(days=1)).strftime("%Y-%m-%d")
-        
-        if prev_date in st.session_state.daily_db:
-            # 전날 데이터 복사
-            st.session_state.daily_db[date_key] = copy.deepcopy(st.session_state.daily_db[prev_date])
-        else:
-            # 0으로 초기화
-            new_data = {}
-            for t in tank_specs:
-                new_data[t] = default_vals.copy()
-            st.session_state.daily_db[date_key] = new_data
+# 탱크 스펙
+TANK_SPECS = {
+    'TK-310':   {'max': 750,  'type': 'Buffer'},
+    'TK-710':   {'max': 760,  'type': 'Prod'},
+    'TK-720':   {'max': 760,  'type': 'Prod'},
+    'TK-6101':  {'max': 5700, 'type': 'Shore'},
+    'UTK-308':  {'max': 5400, 'type': 'Shore'},
+    'UTK-1106': {'max': 6650, 'type': 'Shore'}
+}
+
+# 기본 데이터 (0으로 초기화된 상태)
+DEFAULT_DATA = {
+    'qty': 0.0, 'av': 0.0, 'water': 0, 'metal': 0, 'p': 0, 'org_cl': 0, 'inorg_cl': 0
+}
+
+# [핵심] 세션 상태 초기화 (여기서 에러 방지)
+if 'daily_db' not in st.session_state:
+    st.session_state.daily_db = {}
+if 'correction_log' not in st.session_state:
+    st.session_state.correction_log = []
+
+# 날짜별 DB 로드 (수정된 부분)
+def get_daily_data(date_str):
+    # 1. 해당 날짜 데이터가 이미 있으면 반환
+    if date_str in st.session_state.daily_db:
+        return st.session_state.daily_db[date_str]
+    
+    # 2. 없으면 전날 데이터 찾기
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    prev_date = (date_obj - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    if prev_date in st.session_state.daily_db:
+        # 전날 데이터 이월 (Copy)
+        new_data = copy.deepcopy(st.session_state.daily_db[prev_date])
+    else:
+        # 3. [중요] 전날 데이터도 없으면 "모든 탱크를 0으로 생성" (KeyError 방지)
+        new_data = {}
+        for tank_name in TANK_SPECS.keys():
+            # 반드시 copy()를 써서 서로 다른 객체로 만들어야 함
+            new_data[tank_name] = DEFAULT_DATA.copy()
             
-    return st.session_state.daily_db[date_key]
+    st.session_state.daily_db[date_str] = new_data
+    return new_data
 
-# 4. 블
+# 블렌딩 계산 함수
+def calc_blending(curr_qty, curr_val, in_qty, in_val):
+    total = curr_qty + in_qty
+    if total == 0: return 0.0
+    return ((curr_qty * curr_val) + (in_qty * in_val)) / total
+
+# ---------------------------------------------------------
+# 3. 메인 UI
+# ---------------------------------------------------------
+st.sidebar.title("🏭 생산/출하/QC 시스템")
+
+# 리셋 버튼 (비상용)
+if st.sidebar.button("⚠️ 데이터 초기화 (Reset)"):
+    st.session_state.daily_db = {}
+    st.session_state.correction_log = []
+    st.rerun()
+
+selected_date = st.sidebar.date_input("기준 날짜", datetime.now())
+date_key = selected_date.strftime("%Y-%m-%d")
+
+# 데이터 불러오기
+current_data = get_daily_data(date_key)
+
+menu = st.sidebar.radio("MENUS", 
+    ["🔍 전체 탱크 모니터링 (View Only)", 
+     "① 1차 공정 입력 (R-1140)", 
+     "② 2차 정제 입력 (EV-6000)", 
+     "③ 3차 이송 입력 (Shore)",
+     "④ 수출 선적 입력 (Ship)",
+     "⑤ 재고/품질 보정 (Correction)",
+     "⑥ 예측 정확도 분석 (Analysis)"]
+)
+
+# ---------------------------------------------------------
+# [TAB 1] 모니터링
+# ---------------------------------------------------------
+if menu == "🔍 전체 탱크 모니터링 (View Only)":
+    st.title(f"🔍 {date_key} 공장 현황판")
+    
+    # 합계 계산
+    total_qty = sum(d['qty'] for d in current_data.values())
+    prod_qty = current_data['TK-710']['qty'] + current_data['TK-720']['qty']
+    shore_qty = current_data['TK-6101']['qty'] + current_data['UTK-308']['qty'] + current_data['UTK-1106']['qty']
+    
+    # 가동률 안전 계산
+    buf_qty = current_data['TK-310']['qty']
+    buf_rate = (buf_qty / 750 * 100) if buf_qty > 0 else 0
+    
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("총 재고량", f"{total_qty:,.0f} MT")
+    m2.metric("제품 (Prod)", f"{prod_qty:,.0f} MT")
+    m3.metric("출하 대기 (Shore)", f"{shore_qty:,.0f} MT")
+    m4.metric("Buffer 가동률", f"{buf_rate:.1f}%")
+    st.markdown("---")
+
+    # 카드 그리기 함수
+    def draw_tank_card(name, data, spec):
+        fill_pct = (data['qty'] / spec['max']) * 100 if spec['max'] > 0 else 0
+        total_cl = data['org_cl'] + data['inorg_cl']
+        
+        with st.container(border=True):
+            c1, c2 = st.columns([2, 1])
+            c1.markdown(f"**{name}**")
+            c2.caption(f"{spec['type']}")
+            st.progress(min(fill_pct/100, 1.0))
+            
+            k1, k2, k3 = st.columns(3)
+            k1.metric("재고", f"{data['qty']:.0f}", f"{fill_pct:.1f}%")
+            k2.metric("AV", f"{data['av']:.2f}")
+            k3.metric("T-Cl", f"{total_cl:.1f}")
+            
+            with st.expander("상세 보기"):
+                d1, d2 = st.columns(2)
+                d1.write(f"수분: {data['water']:.0f}")
+                d1.write(f"Org Cl: {data['org_cl']:.1f}")
+                d1.write(f"InOrg Cl: {data['inorg_cl']:.1f}")
+                d2.write(f"Metal: {data['metal']:.1f}")
+                d2.write(f"P: {data['p']:.1f}")
+
+    st.subheader("1️⃣ Buffer Tank")
+    draw_tank_card('TK-310', current_data['TK-310'], TANK_SPECS['TK-310'])
+    st.write("")
+    st.subheader("2️⃣ Product Tanks")
+    c1, c2 = st.columns(2)
+    with c1: draw_tank_card('TK-710', current_data['TK-710'], TANK_SPECS['TK-710'])
+    with c2: draw_tank_card('TK-720', current_data['TK-720'], TANK_SPECS['TK-720'])
+    st.write("")
+    st.subheader("3️⃣ Shore Tanks")
+    s1, s2, s3 = st.columns(3)
+    with s1: draw_tank_card('TK-6101', current_data['TK-6101'], TANK_SPECS['TK-6101'])
+    with s2: draw_tank_card('UTK-308', current_data['UTK-308'], TANK_SPECS['UTK-308'])
+    with s3: draw_tank_card('UTK-1106', current_data['UTK-1106'], TANK_SPECS['UTK-1106'])
+
+# ---------------------------------------------------------
+# [TAB 2] 1차 공정
+# ---------------------------------------------------------
+elif menu == "① 1차 공정 입력 (R-1140)":
+    st.title("🔥 1차 생산 입력")
+    c1, c2 = st.columns(2)
+    with c1: qty = st.number_input("생산량 (MT)", 0.0, 2000.0, step=10.0)
+    with c2:
+        av = st.number_input("AV", 0.0, 10.0, 0.5)
+        ocl = st.number_input("Org Cl", 0, 500, 15)
+    if st.button("저장 (Save)"):
+        tgt = current_data['TK-310']
+        tgt['av'] = calc_blending(tgt['qty'], tgt['av'], qty, av)
+        tgt['org_cl'] = calc_blending(tgt['qty'], tgt['org_cl'], qty, ocl)
+        tgt['qty'] += qty
+        st.success("저장 완료")
+        time.sleep(0.5)
+        st.rerun()
+
+# ---------------------------------------------------------
+# [TAB 3] 2차 정제
+# ---------------------------------------------------------
+elif menu == "② 2차 정제 입력 (EV-6000)":
+    st.title("✨ 2차 정제 입력")
+    c1, c2, c3 = st.columns([1,0.2,1])
+    with c1: f_qty = st.number_input("투입량 (MT)", 0.0, step=10.0)
+    with c3:
+        target = st.selectbox("IN: 제품 탱크", ["TK-710", "TK-720"])
+        p_qty = st.number_input("생산량 (MT)", 0.0, step=10.0)
+    with c2: st.markdown("<br>➡️", unsafe_allow_html=True)
+
+    qc1, qc2, qc3 = st.columns(3)
+    e_av = qc1.number_input("AV", 0.0, 5.0, 0.3)
+    e_wa = qc1.number_input("수분", 0, 1000, 50)
+    e_met = qc2.number_input("Metal", 0, 100, 1)
+    e_p = qc2.number_input("P", 0, 100, 2)
+    e_ocl = qc3.number_input("Org Cl", 0, 100, 5)
+    e_icl = qc3.number_input("InOrg Cl", 0, 100, 1)
+    
+    if st.button("저장 (Save)"):
+        src, tgt = current_data['TK-310'], current_data[target]
+        if src['qty'] < f_qty: st.error("재고 부족")
+        else:
+            tgt['av'] = calc_blending(tgt['qty'], tgt['av'], p_qty, e_av)
+            tgt['water'] = calc_blending(tgt['qty'], tgt['water'], p_qty, e_wa)
+            tgt['metal'] = calc_blending(tgt['qty'], tgt['metal'], p_qty, e_met)
+            tgt['p'] = calc_blending(tgt['qty'], tgt['p'], p_qty, e_p)
+            tgt['org_cl'] = calc_blending(tgt['qty'], tgt['org_cl'], p_qty, e_ocl)
+            tgt['inorg_cl'] = calc_blending(tgt['qty'], tgt['inorg_cl'], p_qty, e_icl)
+            src['qty'] -= f_qty; tgt['qty'] += p_qty
+            st.success("저장 완료")
+            time.sleep(0.5)
+            st.rerun()
+
+# ---------------------------------------------------------
+# [TAB 4] 3차 이송
+# ---------------------------------------------------------
+elif menu == "③ 3차 이송 입력 (Shore)":
+    st.title("🚚 이송 입력")
+    c1, c2, c3 = st.columns([1,0.5,1])
+    with c1:
+        src_n = st.selectbox("From", ["TK-710", "TK-720"])
+        src = current_data[src_n]
+    with c3:
+        tgt_n = st.selectbox("To", ["TK-6101", "UTK-308", "UTK-1106"])
+        tgt = current_data[tgt_n]
+    with c2: m_qty = st.number_input("이송량 (MT)", 0.0, step=10.0)
+    if st.button("저장 (Save)"):
+        if src['qty'] < m_qty: st.error("재고 부족")
+        else:
+            for k in DEFAULT_DATA: 
+                if k!='qty': tgt[k] = calc_blending(tgt['qty'], tgt[k], m_qty, src[k])
+            src['qty'] -= m_qty; tgt['qty'] += m_qty
+            st.success("저장 완료")
+            time.sleep(0.5)
+            st.rerun()
+
+# ---------------------------------------------------------
+# [TAB 5] 선적
+# ---------------------------------------------------------
+elif menu == "④ 수출 선적 입력 (Ship)":
+    st.title("🚢 선적 입력")
+    col1, col2 = st.columns(2)
+    with col1:
+        ship_tank_name = st.selectbox("출하 탱크", ["TK-6101", "UTK-308", "UTK-1106"])
+        ship_tank = current_data[ship_tank_name]
+    with col2: ship_qty = st.number_input("선적량 (MT)", 0.0, float(ship_tank['qty']), step=10.0)
+    if st.button("출하 실행"):
+        ship_tank['qty'] -= ship_qty
+        if ship_tank['qty'] <= 0.01:
+            ship_tank['qty'] = 0.0
+            for k in DEFAULT_DATA: 
+                if k!='qty': ship_tank[k] = 0.0
+        st.success("출하 완료")
+        time.sleep(0.5)
+        st.rerun()
+
+# ---------------------------------------------------------
+# [TAB 6] 보정
+# ---------------------------------------------------------
+elif menu == "⑤ 재고/품질 보정 (Correction)":
+    st.title("🛠️ 실측 보정")
+    target_tank_name = st.selectbox("보정할 탱크", list(TANK_SPECS.keys()))
+    tank_data = current_data[target_tank_name]
+    
+    with st.form("correction_form"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            new_qty = st.number_input("실측 재고 (MT)", 0.0, 10000.0, float(tank_data['qty']))
+            new_av = st.number_input("실측 AV", 0.0, 10.0, float(tank_data['av']))
+            new_water = st.number_input("실측 수분", 0, 5000, int(tank_data['water']))
+        with col2:
+            new_metal = st.number_input("실측 Metal", 0.0, 500.0, float(tank_data['metal']))
+            new_p = st.number_input("실측 P", 0.0, 500.0, float(tank_data['p']))
+        with col3:
+            new_ocl = st.number_input("실측 Org Cl", 0.0, 500.0, float(tank_data['org_cl']))
+            new_icl = st.number_input("실측 InOrg Cl", 0.0, 500.0, float(tank_data['inorg_cl']))
+            
+        submitted = st.form_submit_button("실측 데이터 반영 (Update)")
+        
+        if submitted:
+            # 로그 생성
+            compare_list = [
+                ('qty', '재고', tank_data['qty'], new_qty),
+                ('av', 'AV', tank_data['av'], new_av),
+                ('org_cl', 'Org Cl', tank_data['org_cl'], new_ocl),
+            ]
+            for key, label, old_val, new_val in compare_list:
+                if abs(old_val - new_val) > 0.001:
+                    st.session_state.correction_log.append({
+                        "날짜": date_key, "탱크": target_tank_name, "항목": label,
+                        "예측값": round(old_val, 3), "실측값": round(new_val, 3),
+                        "오차(Diff)": round(new_val - old_val, 3)
+                    })
+            
+            tank_data['qty'] = new_qty
+            tank_data['av'] = new_av
+            tank_data['water'] = new_water
+            tank_data['metal'] = new_metal
+            tank_data['p'] = new_p
+            tank_data['org_cl'] = new_ocl
+            tank_data['inorg_cl'] = new_icl
+            
+            st.success("수정 완료")
+            st.rerun()
+
+# ---------------------------------------------------------
+# [TAB 7] 분석
+# ---------------------------------------------------------
+elif menu == "⑥ 예측 정확도 분석 (Analysis)":
+    st.title("📈 오차 분석")
+    if len(st.session_state.correction_log) == 0:
+        st.info("데이터 없음")
+    else:
+        df_log = pd.DataFrame(st.session_state.correction_log)
+        st.dataframe(df_log, use_container_width=True)
+        st.markdown("---")
+        st.subheader("항목별 오차 추이")
+        tab_av, tab_cl = st.tabs(["AV 오차", "염소 오차"])
+        with tab_av:
+            df_av = df_log[df_log['항목'] == 'AV']
+            if not df_av.empty: st.line_chart(df_av, x='날짜', y='오차(Diff)')
+        with tab_cl:
+            df_cl = df_log[df_log['항목'] == 'Org Cl']
+            if not df_cl.empty: st.line_chart(df_cl, x='날짜', y='오차(Diff)')
