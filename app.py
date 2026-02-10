@@ -11,13 +11,14 @@ import os
 st.set_page_config(page_title="신항공장 생산관리", layout="wide")
 
 # ---------------------------------------------------------
-# 2. 영구 저장 및 데이터 관리 함수
+# 2. 영구 저장 및 데이터 관리 함수 (DB + 로그 분리 저장)
 # ---------------------------------------------------------
 
 DB_FILE = 'factory_db.json'
+LOG_FILE = 'factory_logs.json'
 
 def load_data_from_file():
-    """파일에서 데이터를 불러옵니다."""
+    """파일에서 일일 데이터를 불러옵니다."""
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, 'r', encoding='utf-8') as f:
@@ -26,13 +27,36 @@ def load_data_from_file():
             return {}
     return {}
 
-def save_data_to_file(db):
-    """데이터를 파일에 저장합니다."""
+def load_logs_from_file():
+    """파일에서 로그(QC, History)를 불러옵니다."""
+    if os.path.exists(LOG_FILE):
+        try:
+            with open(LOG_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('history', []), data.get('qc', [])
+        except:
+            return [], []
+    return [], []
+
+def save_db():
+    """일일 데이터 저장"""
     try:
         with open(DB_FILE, 'w', encoding='utf-8') as f:
-            json.dump(db, f, indent=4, ensure_ascii=False)
+            json.dump(st.session_state.daily_db, f, indent=4, ensure_ascii=False)
     except Exception as e:
-        st.error(f"저장 실패: {e}")
+        st.error(f"DB 저장 실패: {e}")
+
+def save_logs():
+    """로그 데이터 저장"""
+    try:
+        data = {
+            'history': st.session_state.history_log,
+            'qc': st.session_state.qc_log
+        }
+        with open(LOG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        st.error(f"로그 저장 실패: {e}")
 
 # 초기 설정
 def init_system():
@@ -50,92 +74,80 @@ def init_system():
         'metal': 0, 'p': 0, 'org_cl': 0, 'inorg_cl': 0
     }
     
+    # 세션 초기화 및 파일 로드
     if 'daily_db' not in st.session_state:
         st.session_state.daily_db = load_data_from_file()
         
-    if 'history_log' not in st.session_state:
-        st.session_state.history_log = []
-    if 'qc_log' not in st.session_state:
-        st.session_state.qc_log = []
+    if 'history_log' not in st.session_state or 'qc_log' not in st.session_state:
+        h_log, q_log = load_logs_from_file()
+        st.session_state.history_log = h_log
+        st.session_state.qc_log = q_log
         
     return tank_specs, default_vals
 
-# 지능형 데이터 가져오기 (빈 데이터면 과거 데이터 자동 로드)
+# 지능형 데이터 가져오기
 def get_today_data(date_key, specs, defaults):
-    # 1. 데이터가 이미 있는 경우
     if date_key in st.session_state.daily_db:
         data = st.session_state.daily_db[date_key]
-        
-        # 데이터는 있는데 전부 0인 경우 (빈 껍데기) -> 재검색 시도
-        total_qty = sum(t['qty'] for t in data.values())
-        if total_qty == 0:
-            past_data = find_past_data(date_key)
-            if past_data:
-                st.session_state.daily_db[date_key] = past_data
-                save_data_to_file(st.session_state.daily_db)
-                return past_data
+        # 빈 껍데기(0)면 과거 데이터 재검색
+        if sum(t['qty'] for t in data.values()) == 0:
+            past = find_past_data(date_key)
+            if past:
+                st.session_state.daily_db[date_key] = past
+                save_db()
+                return past
         return data
     
-    # 2. 데이터가 없는 경우 -> 과거 데이터 찾기
-    past_data = find_past_data(date_key)
-    
-    if past_data:
-        st.session_state.daily_db[date_key] = past_data
+    # 데이터 없으면 생성
+    past = find_past_data(date_key)
+    if past:
+        st.session_state.daily_db[date_key] = past
     else:
-        new_data = {}
-        for t_name in specs:
-            new_data[t_name] = defaults.copy()
+        new_data = {t: defaults.copy() for t in specs}
         st.session_state.daily_db[date_key] = new_data
         
-    save_data_to_file(st.session_state.daily_db)
+    save_db()
     return st.session_state.daily_db[date_key]
 
 def find_past_data(current_date_str):
-    current_date = datetime.strptime(current_date_str, "%Y-%m-%d")
+    curr = datetime.strptime(current_date_str, "%Y-%m-%d")
     for i in range(1, 366):
-        past = (current_date - timedelta(days=i)).strftime("%Y-%m-%d")
+        past = (curr - timedelta(days=i)).strftime("%Y-%m-%d")
         if past in st.session_state.daily_db:
-            past_data = st.session_state.daily_db[past]
-            if sum(t['qty'] for t in past_data.values()) > 0:
-                return copy.deepcopy(past_data)
+            data = st.session_state.daily_db[past]
+            if sum(t['qty'] for t in data.values()) > 0:
+                return copy.deepcopy(data)
     return None
 
 def reset_today_data(date_key, specs, defaults):
-    past_data = find_past_data(date_key)
-    if past_data:
-        st.session_state.daily_db[date_key] = past_data
+    past = find_past_data(date_key)
+    if past:
+        st.session_state.daily_db[date_key] = past
         st.toast(f"✅ {date_key} 데이터 복구 완료")
     else:
-        new_data = {}
-        for t_name in specs:
-            new_data[t_name] = defaults.copy()
-        st.session_state.daily_db[date_key] = new_data
-        st.toast(f"✅ {date_key} 데이터 초기화 (0)")
-    
-    save_data_to_file(st.session_state.daily_db)
+        st.session_state.daily_db[date_key] = {t: defaults.copy() for t in specs}
+        st.toast(f"✅ {date_key} 초기화 (0)")
+    save_db()
     time.sleep(1.0)
     st.rerun()
-
-def persist():
-    save_data_to_file(st.session_state.daily_db)
 
 # ---------------------------------------------------------
 # 더미 데이터 및 초기화
 # ---------------------------------------------------------
 def generate_dummy_data(specs, defaults):
-    base_date = datetime.now()
+    base = datetime.now()
     for i in range(7, -1, -1):
-        d_key = (base_date - timedelta(days=i)).strftime("%Y-%m-%d")
+        d_key = (base - timedelta(days=i)).strftime("%Y-%m-%d")
         new_data = {}
-        for t_name in specs:
+        for t in specs:
             data = defaults.copy()
             data['qty'] = round(random.uniform(100, 500), 1)
             data['av'] = round(random.uniform(0.1, 1.0), 3)
             data['org_cl'] = round(random.uniform(5, 20), 1)
             data['water'] = random.randint(10, 100)
-            new_data[t_name] = data
+            new_data[t] = data
         st.session_state.daily_db[d_key] = new_data
-    persist()
+    save_db()
     st.toast("✅ 테스트 데이터 생성 완료")
     time.sleep(1.0)
     st.rerun()
@@ -144,55 +156,47 @@ def factory_reset():
     st.session_state.daily_db = {}
     st.session_state.history_log = []
     st.session_state.qc_log = []
-    if os.path.exists(DB_FILE):
-        os.remove(DB_FILE)
+    if os.path.exists(DB_FILE): os.remove(DB_FILE)
+    if os.path.exists(LOG_FILE): os.remove(LOG_FILE)
     st.toast("🧹 공장 초기화 완료")
     time.sleep(1.0)
     st.rerun()
 
 # ---------------------------------------------------------
-# 로깅 및 계산 함수 (수정된 부분)
+# 로깅 및 계산
 # ---------------------------------------------------------
 def log_action(date_key, action_type, desc, tanks_involved, current_db):
     snapshot = {}
-    for t_name in tanks_involved:
-        snapshot[t_name] = copy.deepcopy(current_db[t_name])
+    for t in tanks_involved:
+        snapshot[t] = copy.deepcopy(current_db[t])
     
-    # 에러 방지를 위해 변수에 담아서 append
-    log_entry = {
+    st.session_state.history_log.append({
         "time": datetime.now().strftime("%H:%M:%S"),
-        "date": date_key,
-        "type": action_type,
-        "desc": desc,
-        "snapshot": snapshot
-    }
-    st.session_state.history_log.append(log_entry)
+        "date": date_key, "type": action_type, "desc": desc, "snapshot": snapshot
+    })
+    save_logs()
 
 def log_qc_diff(date_key, tank_name, param, predicted, actual):
     diff = actual - predicted
     if abs(diff) > 0.001:
-        # 에러 방지를 위해 딕셔너리를 명확하게 정의
-        qc_entry = {
-            "날짜": date_key,
-            "탱크": tank_name,
-            "항목": param,
-            "예상값": round(predicted, 3),
-            "실측값": round(actual, 3),
-            "오차": round(diff, 3)
-        }
-        st.session_state.qc_log.append(qc_entry)
+        st.session_state.qc_log.append({
+            "날짜": date_key, "탱크": tank_name, "항목": param,
+            "예상값": round(predicted, 3), "실측값": round(actual, 3), "오차": round(diff, 3)
+        })
+        save_logs()
 
 def undo_last_action(current_db):
     if not st.session_state.history_log:
-        st.sidebar.error("취소할 작업이 없습니다.")
+        st.sidebar.error("취소할 작업 없음")
         return
     last = st.session_state.history_log.pop()
     if not last['snapshot']:
-        st.sidebar.error("초기화 작업은 취소할 수 없습니다.")
+        st.sidebar.error("초기화는 취소 불가")
         return
-    for t_name, prev_data in last['snapshot'].items():
-        current_db[t_name] = prev_data
-    persist()
+    for t, data in last['snapshot'].items():
+        current_db[t] = data
+    save_db()
+    save_logs()
     st.sidebar.success(f"취소 완료: {last['desc']}")
     time.sleep(0.5)
     st.rerun()
@@ -215,7 +219,7 @@ def propagate_changes(start_date_str, tank_name, changes):
                         if target[k] < 0: target[k] = 0.0
                 count += 1
     if count > 0:
-        persist()
+        save_db()
         st.toast(f"🔄 이후 {count}일간 데이터 자동 보정됨")
 
 # ==========================================
@@ -225,7 +229,7 @@ def propagate_changes(start_date_str, tank_name, changes):
 SPECS, DEFAULTS = init_system()
 
 st.sidebar.title("🏭 생산관리 System")
-st.sidebar.caption("Ver 18.1 (Fix Syntax)")
+st.sidebar.caption("Ver 19.0 (Full Logging)")
 
 # 테스트 도구
 with st.sidebar.expander("🛠️ 시스템 관리"):
@@ -300,7 +304,7 @@ elif menu == "2. 1차 공정 (R-1140)":
             t['av'] = calc_blend(t['qty'], t['av'], qty, av)
             t['org_cl'] = calc_blend(t['qty'], t['org_cl'], qty, cl)
             t['qty'] += qty
-            persist()
+            save_db()
             st.success("저장 완료"); st.rerun()
 
 # ---------------------------------------------------------
@@ -335,7 +339,7 @@ elif menu == "3. 2차 정제 (EV-6000)":
                 tgt['inorg_cl'] = calc_blend(tgt['qty'], tgt['inorg_cl'], p_q, qi)
                 tgt['p'] = calc_blend(tgt['qty'], tgt['p'], p_q, qp)
                 src['qty'] -= f_q; tgt['qty'] += p_q
-                persist()
+                save_db()
                 st.success("저장 완료"); st.rerun()
 
 # ---------------------------------------------------------
@@ -357,7 +361,7 @@ elif menu == "4. 이송 및 선적":
                     for k in DEFAULTS: 
                         if k!='qty': tgt[k] = calc_blend(tgt['qty'], tgt[k], q, src[k])
                     src['qty'] -= q; tgt['qty'] += q
-                    persist()
+                    save_db()
                     st.success("완료"); st.rerun()
     with t2:
         with st.form("fs"):
@@ -369,18 +373,17 @@ elif menu == "4. 이송 및 선적":
                 tk = TODAY_DATA[s]
                 tk['qty'] -= q
                 if tk['qty'] < 0: tk['qty'] = 0
-                persist()
+                save_db()
                 st.success("완료"); st.rerun()
 
 # ---------------------------------------------------------
-# 5. 실제 분석 데이터 입력
+# 5. 실제 분석 데이터 입력 (Correction) - QC 로깅 강화
 # ---------------------------------------------------------
 elif menu == "5. 실제 분석 데이터 입력":
     st.title("🧪 Lab 분석 결과 반영")
     edit_date = st.date_input("📅 분석 날짜", datetime.now() - timedelta(days=1))
     edit_key = edit_date.strftime("%Y-%m-%d")
     
-    # 데이터 로드 (없으면 생성)
     if edit_key not in st.session_state.daily_db:
          new_db = get_today_data(edit_key, SPECS, DEFAULTS)
     
@@ -404,20 +407,37 @@ elif menu == "5. 실제 분석 데이터 입력":
         auto_sync = st.checkbox("✅ 차이를 미래 날짜에도 반영", value=True)
         
         if st.form_submit_button("반영"):
+            # 1. Delta 계산
             deltas = {
                 'qty': n_qty - curr['qty'], 'av': n_av - curr['av'], 'water': n_wa - curr['water'],
                 'org_cl': n_cl - curr['org_cl'], 'inorg_cl': n_icl - curr['inorg_cl'], 'p': n_p - curr['p']
             }
-            log_action(edit_key, "분석반영", f"{target_tank} 실측보정", [target_tank], edit_data)
-            log_qc_diff(edit_key, target_tank, "AV", curr['av'], n_av)
             
+            # 2. Undo Log 저장
+            log_action(edit_key, "분석반영", f"{target_tank} 실측보정", [target_tank], edit_data)
+            
+            # 3. [핵심] 모든 항목에 대해 QC 로그 기록 (수정됨)
+            check_list = [
+                ("재고", curr['qty'], n_qty),
+                ("AV", curr['av'], n_av),
+                ("수분", curr['water'], n_wa),
+                ("Org Cl", curr['org_cl'], n_cl),
+                ("InOrg Cl", curr['inorg_cl'], n_icl),
+                ("P", curr['p'], n_p)
+            ]
+            for label, pred_val, act_val in check_list:
+                log_qc_diff(edit_key, target_tank, label, pred_val, act_val)
+
+            # 4. 데이터 업데이트
             curr['qty'] = n_qty; curr['av'] = n_av; curr['water'] = n_wa
             curr['org_cl'] = n_cl; curr['inorg_cl'] = n_icl; curr['p'] = n_p
             
+            # 5. 미래 연쇄 수정
             if auto_sync: propagate_changes(edit_key, target_tank, deltas)
             
-            persist()
-            st.success("반영 완료"); st.rerun()
+            save_db()
+            st.success("✅ 분석 데이터 반영 및 QC 로그 저장 완료")
+            st.rerun()
 
 # ---------------------------------------------------------
 # 6. QC 오차 분석
@@ -427,4 +447,5 @@ elif menu == "6. QC 오차 분석":
     if not st.session_state.qc_log:
         st.info("데이터 없음")
     else:
-        st.dataframe(pd.DataFrame(st.session_state.qc_log), use_container_width=True)
+        df = pd.DataFrame(st.session_state.qc_log)
+        st.dataframe(df, use_container_width=True)
