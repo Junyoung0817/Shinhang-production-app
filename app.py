@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import copy
 import time
+import random # 더미 데이터 생성을 위해 추가
 
 # 1. 페이지 설정
 st.set_page_config(page_title="신항공장 생산관리", layout="wide")
@@ -35,12 +36,44 @@ def load_data():
         
     return tank_specs, default_vals
 
+# [NEW] 테스트용 더미 데이터 생성 함수
+def generate_dummy_data(specs, defaults):
+    # 오늘 기준 과거 7일치 데이터 생성
+    base_date = datetime.now()
+    
+    for i in range(7, -1, -1): # 7일전 ~ 오늘
+        d_key = (base_date - timedelta(days=i)).strftime("%Y-%m-%d")
+        
+        # 날짜별 랜덤 데이터 생성
+        new_data = {}
+        for t_name in specs:
+            data = defaults.copy()
+            # 랜덤값 주입 (테스트용)
+            data['qty'] = round(random.uniform(100, 500), 1)
+            data['av'] = round(random.uniform(0.1, 1.0), 3)
+            data['org_cl'] = round(random.uniform(5, 20), 1)
+            data['water'] = random.randint(10, 100)
+            new_data[t_name] = data
+            
+        st.session_state.daily_db[d_key] = new_data
+        
+    st.toast("✅ 최근 7일치 테스트 데이터가 생성되었습니다.")
+    time.sleep(1.0)
+    st.rerun()
+
+# [NEW] 공장 초기화 (전체 삭제)
+def factory_reset():
+    st.session_state.daily_db = {}
+    st.session_state.history_log = []
+    st.session_state.qc_log = []
+    st.toast("🧹 모든 데이터가 초기화되었습니다.")
+    time.sleep(1.0)
+    st.rerun()
+
 def get_data_for_date(date_key, specs, defaults):
-    # 1. 해당 날짜 데이터가 있으면 반환
     if date_key in st.session_state.daily_db:
         return st.session_state.daily_db[date_key]
     
-    # 2. 없으면 과거 데이터 찾기 (Look-back)
     current_date = datetime.strptime(date_key, "%Y-%m-%d")
     found_data = None
     
@@ -59,26 +92,6 @@ def get_data_for_date(date_key, specs, defaults):
         st.session_state.daily_db[date_key] = new_data
             
     return st.session_state.daily_db[date_key]
-
-def reset_today_data(date_key, specs, defaults):
-    current_date = datetime.strptime(date_key, "%Y-%m-%d")
-    found_data = None
-    for i in range(1, 366):
-        past = (current_date - timedelta(days=i)).strftime("%Y-%m-%d")
-        if past in st.session_state.daily_db:
-            found_data = copy.deepcopy(st.session_state.daily_db[past])
-            break
-    if found_data:
-        st.session_state.daily_db[date_key] = found_data
-        st.toast(f"✅ {date_key} 데이터를 삭제하고 {past} 데이터를 불러왔습니다.")
-    else:
-        new_data = {}
-        for t_name in specs:
-            new_data[t_name] = defaults.copy()
-        st.session_state.daily_db[date_key] = new_data
-        st.toast(f"✅ {date_key} 데이터를 0으로 초기화했습니다.")
-    time.sleep(1.0)
-    st.rerun()
 
 def log_action(date_key, action_type, desc, tanks_involved, current_db):
     snapshot = {}
@@ -119,24 +132,20 @@ def calc_blend(curr_qty, curr_val, in_qty, in_val):
     if total == 0: return 0.0
     return ((curr_qty * curr_val) + (in_qty * in_val)) / total
 
-# [핵심] 연쇄 수정 함수 (과거 수정 시 미래 데이터 자동 보정)
 def propagate_changes(start_date_str, tank_name, changes):
     all_dates = sorted(list(st.session_state.daily_db.keys()))
     count = 0
     for d_key in all_dates:
-        if d_key > start_date_str: # 수정일 이후의 날짜들
+        if d_key > start_date_str:
             if tank_name in st.session_state.daily_db[d_key]:
                 target = st.session_state.daily_db[d_key][tank_name]
-                
-                # 차이만큼 더해주기 (Shift)
                 for k, v in changes.items():
                     if abs(v) > 0.0001:
                         target[k] += v
-                        if target[k] < 0: target[k] = 0.0 # 음수 방지
+                        if target[k] < 0: target[k] = 0.0
                 count += 1
-    
     if count > 0:
-        st.toast(f"🔄 {start_date_str} 이후 {count}일간의 데이터도 함께 수정되었습니다.")
+        st.toast(f"🔄 {start_date_str} 이후 {count}일간의 데이터도 함께 보정되었습니다.")
 
 # ==========================================
 # 메인 실행 로직
@@ -145,32 +154,39 @@ def propagate_changes(start_date_str, tank_name, changes):
 SPECS, DEFAULTS = load_data()
 
 st.sidebar.title("🏭 생산관리 System")
-st.sidebar.caption("Ver 16.0 (Past Edit Mode)")
+st.sidebar.caption("Ver 17.0 (Test Mode)")
 
-# [메인 날짜 선택] - 조회용
-selected_date = st.sidebar.date_input("기준 날짜 (조회/입력)", datetime.now())
+# [NEW] 테스트 및 시스템 관리 도구 (Expander로 숨김)
+with st.sidebar.expander("🛠️ 시스템 관리 (Test Mode)"):
+    if st.button("🎲 더미 데이터 생성 (7일치)"):
+        generate_dummy_data(SPECS, DEFAULTS)
+    
+    st.markdown("---")
+    if st.button("🔥 전체 초기화 (Factory Reset)"):
+        factory_reset()
+    st.caption("주의: 모든 날짜의 데이터가 삭제됩니다.")
+
+st.sidebar.markdown("---")
+
+# 날짜 선택
+selected_date = st.sidebar.date_input("기준 날짜", datetime.now())
 DATE_KEY = selected_date.strftime("%Y-%m-%d")
 
 # 데이터 로드
 TODAY_DATA = get_data_for_date(DATE_KEY, SPECS, DEFAULTS)
 
-# 버튼들
-st.sidebar.markdown("---")
-if st.sidebar.button(f"🗑️ [{DATE_KEY}] 초기화"):
-    reset_today_data(DATE_KEY, SPECS, DEFAULTS)
-
-st.sidebar.markdown("---")
+# 실행 취소
 if st.session_state.history_log:
     if st.sidebar.button("↩️ 실행 취소 (Undo)"):
         undo_last_action(TODAY_DATA)
 
-# 메뉴 구조 변경
+# 메뉴
 menu = st.sidebar.radio("메뉴 이동", 
     ["1. 전체 모니터링", 
      "2. 1차 공정 (R-1140)", 
      "3. 2차 정제 (EV-6000)", 
      "4. 이송 및 선적", 
-     "5. 과거 데이터 수정 (Time Machine)", # 이름 변경
+     "5. 실제 분석 데이터 입력 (Correction)", # 이름 변경됨
      "6. QC 오차 분석"]
 )
 
@@ -193,7 +209,7 @@ if menu == "1. 전체 모니터링":
     st.table(pd.DataFrame(rows))
 
 # ---------------------------------------------------------
-# 2~4. 입력 메뉴들
+# 2~4. 입력 메뉴
 # ---------------------------------------------------------
 elif menu == "2. 1차 공정 (R-1140)":
     st.info("원료 → R-1140 → TK-310")
@@ -273,48 +289,44 @@ elif menu == "4. 이송 및 선적":
                 st.success("완료"); st.rerun()
 
 # ---------------------------------------------------------
-# [핵심] 5. 과거 데이터 수정 (Time Machine)
+# [핵심] 5. 실제 분석 데이터 입력 (Correction)
 # ---------------------------------------------------------
-elif menu == "5. 과거 데이터 수정 (Time Machine)":
-    st.title("🕰️ 과거 기록 수정 (타임머신)")
+elif menu == "5. 실제 분석 데이터 입력 (Correction)":
+    st.title("🧪 Lab 분석 결과 반영")
     st.markdown("""
     **사용법:**
-    1. 수정하고 싶은 **과거 날짜**를 아래에서 선택하세요.
-    2. 탱크의 값을 수정하고 저장하면, **그 차이만큼 미래 날짜(오늘 포함)까지 자동으로 반영**됩니다.
+    1. 분석 결과가 나온 **해당 날짜**를 선택하세요. (과거 날짜 가능)
+    2. 실제 분석값(Lab Data)을 입력하세요.
+    3. 저장하면 그 차이만큼 **이후 날짜의 데이터도 자동으로 보정**됩니다.
     """)
     
-    # 1. 수정할 과거 날짜 선택 (메인 날짜와 별도)
-    edit_date = st.date_input("📅 수정할 날짜 선택", datetime.now() - timedelta(days=1))
+    # 분석 날짜 선택
+    edit_date = st.date_input("📅 분석(샘플링) 날짜", datetime.now() - timedelta(days=1))
     edit_key = edit_date.strftime("%Y-%m-%d")
     
-    # 해당 날짜 데이터 불러오기
     if edit_key not in st.session_state.daily_db:
-        st.warning(f"{edit_key} 데이터가 없습니다. (먼저 해당 날짜를 조회하여 데이터를 생성해주세요)")
+        st.warning(f"⚠️ {edit_key} 데이터가 없습니다. (해당 날짜를 먼저 조회하여 데이터를 생성하세요)")
     else:
         edit_data = st.session_state.daily_db[edit_key]
-        
-        # 탱크 선택
-        target_tank = st.selectbox("수정할 탱크", list(SPECS.keys()))
+        target_tank = st.selectbox("분석 탱크 선택", list(SPECS.keys()))
         curr = edit_data[target_tank]
         
-        st.markdown(f"### 📝 {edit_key} / {target_tank} 수정")
+        st.markdown(f"### 📝 {edit_key} / {target_tank} 분석값 입력")
         
-        with st.form("past_edit_form"):
+        with st.form("correction_form"):
             c1, c2 = st.columns(2)
             with c1:
-                n_qty = st.number_input("재고 (MT)", value=float(curr['qty']))
-                n_av = st.number_input("AV", value=float(curr['av']))
-                n_wa = st.number_input("수분", value=int(curr['water']))
+                n_qty = st.number_input("실측 재고 (MT)", value=float(curr['qty']))
+                n_av = st.number_input("실측 AV", value=float(curr['av']))
+                n_wa = st.number_input("실측 수분", value=int(curr['water']))
             with c2:
-                n_cl = st.number_input("Org Cl", value=float(curr['org_cl']))
-                n_icl = st.number_input("InOrg Cl", value=float(curr['inorg_cl']))
-                n_p = st.number_input("P (인)", value=float(curr['p']))
+                n_cl = st.number_input("실측 Org Cl", value=float(curr['org_cl']))
+                n_icl = st.number_input("실측 InOrg Cl", value=float(curr['inorg_cl']))
+                n_p = st.number_input("실측 P", value=float(curr['p']))
             
-            # 미래 반영 옵션 (기본 체크)
-            auto_sync = st.checkbox("✅ 수정된 차이를 미래 날짜(내일~오늘)에도 반영합니다.", value=True)
+            auto_sync = st.checkbox("✅ 분석 오차를 이후 날짜(미래)에도 반영합니다.", value=True)
             
-            if st.form_submit_button("수정 내용 저장"):
-                # 변경량(Delta) 계산
+            if st.form_submit_button("분석 결과 반영"):
                 deltas = {
                     'qty': n_qty - curr['qty'],
                     'av': n_av - curr['av'],
@@ -324,28 +336,30 @@ elif menu == "5. 과거 데이터 수정 (Time Machine)":
                     'p': n_p - curr['p']
                 }
                 
-                # 로그 기록
-                log_action(edit_key, "과거수정", f"{edit_key} {target_tank} 수정", [target_tank], edit_data)
+                log_action(edit_key, "분석반영", f"{edit_key} {target_tank} 실측보정", [target_tank], edit_data)
                 
-                # 1. 과거 날짜 데이터 업데이트
+                # QC 로그도 남김
+                log_qc_diff(edit_key, target_tank, "AV", curr['av'], n_av)
+                log_qc_diff(edit_key, target_tank, "Org Cl", curr['org_cl'], n_cl)
+
+                # 현재 값 업데이트
                 curr['qty'] = n_qty; curr['av'] = n_av; curr['water'] = n_wa
                 curr['org_cl'] = n_cl; curr['inorg_cl'] = n_icl; curr['p'] = n_p
                 
-                # 2. 미래 데이터 연쇄 수정
+                # 미래 연쇄 수정
                 if auto_sync:
                     propagate_changes(edit_key, target_tank, deltas)
                     
-                st.success(f"{edit_key} 데이터 수정 완료! (미래 데이터 동기화 됨)")
+                st.success(f"✅ {edit_key} 분석 데이터 반영 완료!")
                 time.sleep(1.0)
                 st.rerun()
 
 # ---------------------------------------------------------
-# 6. QC 분석
+# 6. QC 오차 분석
 # ---------------------------------------------------------
 elif menu == "6. QC 오차 분석":
-    st.title("📈 오차 분석")
+    st.title("📈 예측 vs 실측 오차 분석")
     if not st.session_state.qc_log:
         st.info("데이터 없음")
     else:
-        df = pd.DataFrame(st.session_state.qc_log)
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(pd.DataFrame(st.session_state.qc_log), use_container_width=True)
