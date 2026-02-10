@@ -38,19 +38,38 @@ def load_data():
         
     return tank_specs, default_vals
 
+# [핵심 수정] 과거 데이터 추적 로직 (Look-back)
 def get_today_data(date_key, specs, defaults):
-    if date_key not in st.session_state.daily_db:
-        date_obj = datetime.strptime(date_key, "%Y-%m-%d")
-        prev_date = (date_obj - timedelta(days=1)).strftime("%Y-%m-%d")
+    # 1. 해당 날짜 데이터가 이미 있으면 반환 (가장 빠름)
+    if date_key in st.session_state.daily_db:
+        return st.session_state.daily_db[date_key]
+    
+    # 2. 없으면? "가장 최근 과거 데이터"를 찾아 나선다.
+    current_date_obj = datetime.strptime(date_key, "%Y-%m-%d")
+    found_data = None
+    found_date_str = ""
+
+    # 최대 365일 전까지 뒤져봄
+    for i in range(1, 366):
+        past_date = (current_date_obj - timedelta(days=i)).strftime("%Y-%m-%d")
+        if past_date in st.session_state.daily_db:
+            # 찾았다!
+            found_data = copy.deepcopy(st.session_state.daily_db[past_date])
+            found_date_str = past_date
+            break
+    
+    # 3. 데이터를 찾았으면 그걸 복사해서 오늘자로 생성
+    if found_data:
+        st.session_state.daily_db[date_key] = found_data
+        # 알림 메시지 (어떤 날짜 데이터를 가져왔는지)
+        st.toast(f"🔄 {found_date_str}의 데이터를 이월했습니다.")
+    else:
+        # 과거 데이터가 아예 없으면 (최초 실행) 0으로 초기화
+        new_data = {}
+        for t_name in specs:
+            new_data[t_name] = defaults.copy()
+        st.session_state.daily_db[date_key] = new_data
         
-        if prev_date in st.session_state.daily_db:
-            st.session_state.daily_db[date_key] = copy.deepcopy(st.session_state.daily_db[prev_date])
-        else:
-            new_data = {}
-            for t_name in specs:
-                new_data[t_name] = defaults.copy()
-            st.session_state.daily_db[date_key] = new_data
-            
     return st.session_state.daily_db[date_key]
 
 # 작업 기록 함수 (Undo용)
@@ -59,7 +78,6 @@ def log_action(desc, tanks_involved, current_db):
     for t_name in tanks_involved:
         snapshot[t_name] = copy.deepcopy(current_db[t_name])
     
-    # 에러가 났던 부분 수정 (안전하게 작성)
     log_entry = {
         "time": datetime.now().strftime("%H:%M:%S"),
         "desc": desc,
@@ -98,13 +116,13 @@ def calc_blend(curr_qty, curr_val, in_qty, in_val):
 SPECS, DEFAULTS = load_data()
 
 st.sidebar.title("🏭 생산관리 System")
-st.sidebar.caption("Ver 9.3 (Fix)")
+st.sidebar.caption("Ver 10.0 (Auto Carry-over)")
 
 # 날짜 선택
 selected_date = st.sidebar.date_input("기준 날짜", datetime.now())
 DATE_KEY = selected_date.strftime("%Y-%m-%d")
 
-# 데이터 로드
+# 데이터 로드 (수정된 함수 사용)
 TODAY_DATA = get_today_data(DATE_KEY, SPECS, DEFAULTS)
 
 # 실행 취소 UI
