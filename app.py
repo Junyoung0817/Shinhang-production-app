@@ -3,16 +3,39 @@ import pandas as pd
 from datetime import datetime, timedelta
 import copy
 import time
-import random # 더미 데이터 생성을 위해 추가
+import random
+import json
+import os
 
 # 1. 페이지 설정
 st.set_page_config(page_title="신항공장 생산관리", layout="wide")
 
 # ---------------------------------------------------------
-# 2. 초기 설정 및 데이터 관리 함수
+# 2. 영구 저장 및 데이터 관리 함수 (핵심 기능)
 # ---------------------------------------------------------
 
-def load_data():
+DB_FILE = 'factory_db.json'
+
+def load_data_from_file():
+    """파일에서 데이터를 불러옵니다. 없으면 빈 DB 반환"""
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_data_to_file(db):
+    """데이터를 파일에 저장합니다."""
+    try:
+        with open(DB_FILE, 'w', encoding='utf-8') as f:
+            json.dump(db, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        st.error(f"데이터 저장 실패: {e}")
+
+# 초기 설정
+def init_system():
     tank_specs = {
         'TK-310':   {'max': 750,  'type': 'Buffer'},
         'TK-710':   {'max': 760,  'type': 'Prod'},
@@ -27,8 +50,10 @@ def load_data():
         'metal': 0, 'p': 0, 'org_cl': 0, 'inorg_cl': 0
     }
     
+    # 세션에 DB가 없으면 파일에서 로드
     if 'daily_db' not in st.session_state:
-        st.session_state.daily_db = {}
+        st.session_state.daily_db = load_data_from_file()
+        
     if 'history_log' not in st.session_state:
         st.session_state.history_log = []
     if 'qc_log' not in st.session_state:
@@ -36,73 +61,117 @@ def load_data():
         
     return tank_specs, default_vals
 
-# [NEW] 테스트용 더미 데이터 생성 함수
-def generate_dummy_data(specs, defaults):
-    # 오늘 기준 과거 7일치 데이터 생성
-    base_date = datetime.now()
-    
-    for i in range(7, -1, -1): # 7일전 ~ 오늘
-        d_key = (base_date - timedelta(days=i)).strftime("%Y-%m-%d")
+# [핵심] 지능형 데이터 가져오기
+def get_today_data(date_key, specs, defaults):
+    # 1. 데이터가 이미 존재하는 경우
+    if date_key in st.session_state.daily_db:
+        data = st.session_state.daily_db[date_key]
         
-        # 날짜별 랜덤 데이터 생성
+        # [중요] 데이터는 있지만 전부 '0'인 경우 (빈 껍데기) -> 과거 데이터 재검색 시도
+        total_qty = sum(t['qty'] for t in data.values())
+        if total_qty == 0:
+            past_data = find_past_data(date_key)
+            if past_data:
+                # 과거 데이터가 발견되면 덮어씌움 (자동 이월)
+                st.session_state.daily_db[date_key] = past_data
+                save_data_to_file(st.session_state.daily_db) # 저장
+                return past_data
+        
+        return data
+    
+    # 2. 데이터가 없는 경우 -> 과거 데이터 찾기 (Look-back)
+    past_data = find_past_data(date_key)
+    
+    if past_data:
+        st.session_state.daily_db[date_key] = past_data
+    else:
+        # 과거 데이터도 없으면 0으로 초기화
         new_data = {}
         for t_name in specs:
-            data = defaults.copy()
-            # 랜덤값 주입 (테스트용)
-            data['qty'] = round(random.uniform(100, 500), 1)
-            data['av'] = round(random.uniform(0.1, 1.0), 3)
-            data['org_cl'] = round(random.uniform(5, 20), 1)
-            data['water'] = random.randint(10, 100)
-            new_data[t_name] = data
-            
-        st.session_state.daily_db[d_key] = new_data
+            new_data[t_name] = defaults.copy()
+        st.session_state.daily_db[date_key] = new_data
         
-    st.toast("✅ 최근 7일치 테스트 데이터가 생성되었습니다.")
-    time.sleep(1.0)
-    st.rerun()
+    save_data_to_file(st.session_state.daily_db) # 신규 생성 저장
+    return st.session_state.daily_db[date_key]
 
-# [NEW] 공장 초기화 (전체 삭제)
-def factory_reset():
-    st.session_state.daily_db = {}
-    st.session_state.history_log = []
-    st.session_state.qc_log = []
-    st.toast("🧹 모든 데이터가 초기화되었습니다.")
-    time.sleep(1.0)
-    st.rerun()
-
-def get_data_for_date(date_key, specs, defaults):
-    if date_key in st.session_state.daily_db:
-        return st.session_state.daily_db[date_key]
-    
-    current_date = datetime.strptime(date_key, "%Y-%m-%d")
-    found_data = None
-    
+def find_past_data(current_date_str):
+    """가장 최근의 과거 데이터를 찾아 반환"""
+    current_date = datetime.strptime(current_date_str, "%Y-%m-%d")
     for i in range(1, 366):
         past = (current_date - timedelta(days=i)).strftime("%Y-%m-%d")
         if past in st.session_state.daily_db:
-            found_data = copy.deepcopy(st.session_state.daily_db[past])
-            break
-            
-    if found_data:
-        st.session_state.daily_db[date_key] = found_data
+            # 과거 데이터가 0이 아닌 경우에만 유효하다고 판단
+            past_data = st.session_state.daily_db[past]
+            if sum(t['qty'] for t in past_data.values()) > 0:
+                return copy.deepcopy(past_data)
+    return None
+
+def reset_today_data(date_key, specs, defaults):
+    # 전일 데이터 찾기
+    past_data = find_past_data(date_key)
+    
+    if past_data:
+        st.session_state.daily_db[date_key] = past_data
+        st.toast(f"✅ {date_key} 초기화: 전일 데이터를 불러왔습니다.")
     else:
         new_data = {}
         for t_name in specs:
             new_data[t_name] = defaults.copy()
         st.session_state.daily_db[date_key] = new_data
-            
-    return st.session_state.daily_db[date_key]
+        st.toast(f"✅ {date_key} 초기화: 데이터가 없어 0으로 설정했습니다.")
+    
+    save_data_to_file(st.session_state.daily_db) # 저장
+    time.sleep(1.0)
+    st.rerun()
 
+# 공통: 변경사항이 생길 때마다 파일 저장 호출
+def persist():
+    save_data_to_file(st.session_state.daily_db)
+
+# ---------------------------------------------------------
+# 더미 데이터 및 초기화
+# ---------------------------------------------------------
+def generate_dummy_data(specs, defaults):
+    base_date = datetime.now()
+    for i in range(7, -1, -1):
+        d_key = (base_date - timedelta(days=i)).strftime("%Y-%m-%d")
+        new_data = {}
+        for t_name in specs:
+            data = defaults.copy()
+            data['qty'] = round(random.uniform(100, 500), 1)
+            data['av'] = round(random.uniform(0.1, 1.0), 3)
+            data['org_cl'] = round(random.uniform(5, 20), 1)
+            data['water'] = random.randint(10, 100)
+            new_data[t_name] = data
+        st.session_state.daily_db[d_key] = new_data
+    
+    persist() # 저장
+    st.toast("✅ 테스트 데이터 생성 완료")
+    time.sleep(1.0)
+    st.rerun()
+
+def factory_reset():
+    st.session_state.daily_db = {}
+    st.session_state.history_log = []
+    st.session_state.qc_log = []
+    
+    if os.path.exists(DB_FILE):
+        os.remove(DB_FILE) # 파일 삭제
+        
+    st.toast("🧹 공장 초기화 완료")
+    time.sleep(1.0)
+    st.rerun()
+
+# ---------------------------------------------------------
+# 로깅 및 계산 함수
+# ---------------------------------------------------------
 def log_action(date_key, action_type, desc, tanks_involved, current_db):
     snapshot = {}
     for t_name in tanks_involved:
         snapshot[t_name] = copy.deepcopy(current_db[t_name])
     st.session_state.history_log.append({
         "time": datetime.now().strftime("%H:%M:%S"),
-        "date": date_key,
-        "type": action_type,
-        "desc": desc,
-        "snapshot": snapshot
+        "date": date_key, "type": action_type, "desc": desc, "snapshot": snapshot
     })
 
 def log_qc_diff(date_key, tank_name, param, predicted, actual):
@@ -110,256 +179,4 @@ def log_qc_diff(date_key, tank_name, param, predicted, actual):
     if abs(diff) > 0.001:
         st.session_state.qc_log.append({
             "날짜": date_key, "탱크": tank_name, "항목": param,
-            "예상값": round(predicted, 3), "실측값": round(actual, 3), "오차": round(diff, 3)
-        })
-
-def undo_last_action(current_db):
-    if not st.session_state.history_log:
-        st.sidebar.error("취소할 작업이 없습니다.")
-        return
-    last = st.session_state.history_log.pop()
-    if not last['snapshot']:
-        st.sidebar.error("초기화 작업은 취소할 수 없습니다.")
-        return
-    for t_name, prev_data in last['snapshot'].items():
-        current_db[t_name] = prev_data
-    st.sidebar.success(f"취소 완료: {last['desc']}")
-    time.sleep(0.5)
-    st.rerun()
-
-def calc_blend(curr_qty, curr_val, in_qty, in_val):
-    total = curr_qty + in_qty
-    if total == 0: return 0.0
-    return ((curr_qty * curr_val) + (in_qty * in_val)) / total
-
-def propagate_changes(start_date_str, tank_name, changes):
-    all_dates = sorted(list(st.session_state.daily_db.keys()))
-    count = 0
-    for d_key in all_dates:
-        if d_key > start_date_str:
-            if tank_name in st.session_state.daily_db[d_key]:
-                target = st.session_state.daily_db[d_key][tank_name]
-                for k, v in changes.items():
-                    if abs(v) > 0.0001:
-                        target[k] += v
-                        if target[k] < 0: target[k] = 0.0
-                count += 1
-    if count > 0:
-        st.toast(f"🔄 {start_date_str} 이후 {count}일간의 데이터도 함께 보정되었습니다.")
-
-# ==========================================
-# 메인 실행 로직
-# ==========================================
-
-SPECS, DEFAULTS = load_data()
-
-st.sidebar.title("🏭 생산관리 System")
-st.sidebar.caption("Ver 17.0 (Test Mode)")
-
-# [NEW] 테스트 및 시스템 관리 도구 (Expander로 숨김)
-with st.sidebar.expander("🛠️ 시스템 관리 (Test Mode)"):
-    if st.button("🎲 더미 데이터 생성 (7일치)"):
-        generate_dummy_data(SPECS, DEFAULTS)
-    
-    st.markdown("---")
-    if st.button("🔥 전체 초기화 (Factory Reset)"):
-        factory_reset()
-    st.caption("주의: 모든 날짜의 데이터가 삭제됩니다.")
-
-st.sidebar.markdown("---")
-
-# 날짜 선택
-selected_date = st.sidebar.date_input("기준 날짜", datetime.now())
-DATE_KEY = selected_date.strftime("%Y-%m-%d")
-
-# 데이터 로드
-TODAY_DATA = get_data_for_date(DATE_KEY, SPECS, DEFAULTS)
-
-# 실행 취소
-if st.session_state.history_log:
-    if st.sidebar.button("↩️ 실행 취소 (Undo)"):
-        undo_last_action(TODAY_DATA)
-
-# 메뉴
-menu = st.sidebar.radio("메뉴 이동", 
-    ["1. 전체 모니터링", 
-     "2. 1차 공정 (R-1140)", 
-     "3. 2차 정제 (EV-6000)", 
-     "4. 이송 및 선적", 
-     "5. 실제 분석 데이터 입력 (Correction)", # 이름 변경됨
-     "6. QC 오차 분석"]
-)
-
-st.header(f"📅 {DATE_KEY} : {menu}")
-
-# ---------------------------------------------------------
-# 1. 모니터링
-# ---------------------------------------------------------
-if menu == "1. 전체 모니터링":
-    st.subheader("📊 탱크별 재고 및 품질 현황")
-    rows = []
-    for t in SPECS:
-        d = TODAY_DATA[t]
-        rows.append({
-            "탱크": t, "구분": SPECS[t]['type'],
-            "재고": f"{d['qty']:.1f}", "AV": f"{d['av']:.3f}",
-            "Org Cl": f"{d['org_cl']:.1f}", "InOrg Cl": f"{d['inorg_cl']:.1f}",
-            "P": f"{d['p']:.1f}", "수분": f"{d['water']:.0f}", "Metal": f"{d['metal']:.1f}"
-        })
-    st.table(pd.DataFrame(rows))
-
-# ---------------------------------------------------------
-# 2~4. 입력 메뉴
-# ---------------------------------------------------------
-elif menu == "2. 1차 공정 (R-1140)":
-    st.info("원료 → R-1140 → TK-310")
-    st.write(f"현재 TK-310: {TODAY_DATA['TK-310']['qty']:.1f} MT")
-    with st.form("f1"):
-        c1, c2 = st.columns(2)
-        with c1: qty = st.number_input("생산량", 0.0, step=10.0)
-        with c2: 
-            av = st.number_input("AV", 0.0, step=0.1)
-            cl = st.number_input("Org Cl", 0.0, step=1.0)
-        if st.form_submit_button("저장"):
-            log_action(DATE_KEY, "입고", f"1차 +{qty}", ['TK-310'], TODAY_DATA)
-            t = TODAY_DATA['TK-310']
-            t['av'] = calc_blend(t['qty'], t['av'], qty, av)
-            t['org_cl'] = calc_blend(t['qty'], t['org_cl'], qty, cl)
-            t['qty'] += qty
-            st.success("저장 완료"); st.rerun()
-
-elif menu == "3. 2차 정제 (EV-6000)":
-    st.info("TK-310 → EV-6000 → 제품탱크")
-    with st.form("f2"):
-        c1, c2, c3 = st.columns(3)
-        with c1: f_q = st.number_input("TK-310 투입", 0.0)
-        with c2: dest = st.selectbox("To", ["TK-710", "TK-720"])
-        with c3: p_q = st.number_input("제품 생산", 0.0)
-        st.markdown("---")
-        q1, q2 = st.columns(2)
-        with q1: 
-            qa = st.number_input("AV", 0.0)
-            qw = st.number_input("수분", 0)
-            qm = st.number_input("Metal", 0.0)
-        with q2: 
-            qo = st.number_input("Org Cl", 0.0)
-            qi = st.number_input("InOrg Cl", 0.0)
-            qp = st.number_input("P", 0.0)
-        if st.form_submit_button("저장"):
-            log_action(DATE_KEY, "생산", f"2차 {dest} +{p_q}", ['TK-310', dest], TODAY_DATA)
-            src = TODAY_DATA['TK-310']; tgt = TODAY_DATA[dest]
-            if src['qty'] < f_q: st.error("재고 부족")
-            else:
-                tgt['av'] = calc_blend(tgt['qty'], tgt['av'], p_q, qa)
-                tgt['water'] = calc_blend(tgt['qty'], tgt['water'], p_q, qw)
-                tgt['metal'] = calc_blend(tgt['qty'], tgt['metal'], p_q, qm)
-                tgt['org_cl'] = calc_blend(tgt['qty'], tgt['org_cl'], p_q, qo)
-                tgt['inorg_cl'] = calc_blend(tgt['qty'], tgt['inorg_cl'], p_q, qi)
-                tgt['p'] = calc_blend(tgt['qty'], tgt['p'], p_q, qp)
-                src['qty'] -= f_q; tgt['qty'] += p_q
-                st.success("저장 완료"); st.rerun()
-
-elif menu == "4. 이송 및 선적":
-    t1, t2 = st.tabs(["이송", "선적"])
-    with t1:
-        with st.form("ft"):
-            c1, c2, c3 = st.columns(3)
-            with c1: f = st.selectbox("From", ["TK-710", "TK-720"])
-            with c2: t = st.selectbox("To", ["TK-6101", "UTK-308", "UTK-1106"])
-            with c3: q = st.number_input("이송량", 0.0)
-            if st.form_submit_button("이송"):
-                log_action(DATE_KEY, "이송", f"{f}->{t} {q}", [f, t], TODAY_DATA)
-                src = TODAY_DATA[f]; tgt = TODAY_DATA[t]
-                if src['qty'] < q: st.error("부족")
-                else:
-                    for k in DEFAULTS: 
-                        if k!='qty': tgt[k] = calc_blend(tgt['qty'], tgt[k], q, src[k])
-                    src['qty'] -= q; tgt['qty'] += q
-                    st.success("완료"); st.rerun()
-    with t2:
-        with st.form("fs"):
-            c1, c2 = st.columns(2)
-            with c1: s = st.selectbox("출하 탱크", ["TK-6101", "UTK-308", "UTK-1106"])
-            with c2: q = st.number_input("선적량", 0.0)
-            if st.form_submit_button("선적"):
-                log_action(DATE_KEY, "선적", f"{s} -{q}", [s], TODAY_DATA)
-                tk = TODAY_DATA[s]
-                tk['qty'] -= q
-                if tk['qty'] < 0: tk['qty'] = 0
-                st.success("완료"); st.rerun()
-
-# ---------------------------------------------------------
-# [핵심] 5. 실제 분석 데이터 입력 (Correction)
-# ---------------------------------------------------------
-elif menu == "5. 실제 분석 데이터 입력 (Correction)":
-    st.title("🧪 Lab 분석 결과 반영")
-    st.markdown("""
-    **사용법:**
-    1. 분석 결과가 나온 **해당 날짜**를 선택하세요. (과거 날짜 가능)
-    2. 실제 분석값(Lab Data)을 입력하세요.
-    3. 저장하면 그 차이만큼 **이후 날짜의 데이터도 자동으로 보정**됩니다.
-    """)
-    
-    # 분석 날짜 선택
-    edit_date = st.date_input("📅 분석(샘플링) 날짜", datetime.now() - timedelta(days=1))
-    edit_key = edit_date.strftime("%Y-%m-%d")
-    
-    if edit_key not in st.session_state.daily_db:
-        st.warning(f"⚠️ {edit_key} 데이터가 없습니다. (해당 날짜를 먼저 조회하여 데이터를 생성하세요)")
-    else:
-        edit_data = st.session_state.daily_db[edit_key]
-        target_tank = st.selectbox("분석 탱크 선택", list(SPECS.keys()))
-        curr = edit_data[target_tank]
-        
-        st.markdown(f"### 📝 {edit_key} / {target_tank} 분석값 입력")
-        
-        with st.form("correction_form"):
-            c1, c2 = st.columns(2)
-            with c1:
-                n_qty = st.number_input("실측 재고 (MT)", value=float(curr['qty']))
-                n_av = st.number_input("실측 AV", value=float(curr['av']))
-                n_wa = st.number_input("실측 수분", value=int(curr['water']))
-            with c2:
-                n_cl = st.number_input("실측 Org Cl", value=float(curr['org_cl']))
-                n_icl = st.number_input("실측 InOrg Cl", value=float(curr['inorg_cl']))
-                n_p = st.number_input("실측 P", value=float(curr['p']))
-            
-            auto_sync = st.checkbox("✅ 분석 오차를 이후 날짜(미래)에도 반영합니다.", value=True)
-            
-            if st.form_submit_button("분석 결과 반영"):
-                deltas = {
-                    'qty': n_qty - curr['qty'],
-                    'av': n_av - curr['av'],
-                    'water': n_wa - curr['water'],
-                    'org_cl': n_cl - curr['org_cl'],
-                    'inorg_cl': n_icl - curr['inorg_cl'],
-                    'p': n_p - curr['p']
-                }
-                
-                log_action(edit_key, "분석반영", f"{edit_key} {target_tank} 실측보정", [target_tank], edit_data)
-                
-                # QC 로그도 남김
-                log_qc_diff(edit_key, target_tank, "AV", curr['av'], n_av)
-                log_qc_diff(edit_key, target_tank, "Org Cl", curr['org_cl'], n_cl)
-
-                # 현재 값 업데이트
-                curr['qty'] = n_qty; curr['av'] = n_av; curr['water'] = n_wa
-                curr['org_cl'] = n_cl; curr['inorg_cl'] = n_icl; curr['p'] = n_p
-                
-                # 미래 연쇄 수정
-                if auto_sync:
-                    propagate_changes(edit_key, target_tank, deltas)
-                    
-                st.success(f"✅ {edit_key} 분석 데이터 반영 완료!")
-                time.sleep(1.0)
-                st.rerun()
-
-# ---------------------------------------------------------
-# 6. QC 오차 분석
-# ---------------------------------------------------------
-elif menu == "6. QC 오차 분석":
-    st.title("📈 예측 vs 실측 오차 분석")
-    if not st.session_state.qc_log:
-        st.info("데이터 없음")
-    else:
-        st.dataframe(pd.DataFrame(st.session_state.qc_log), use_container_width=True)
+            "예상값":
