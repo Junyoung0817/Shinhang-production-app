@@ -16,7 +16,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# [UI 디자인] Custom CSS
+# [UI 디자인] Custom CSS (폰트 및 공통 스타일)
 # ---------------------------------------------------------
 st.markdown("""
     <style>
@@ -25,35 +25,6 @@ st.markdown("""
     html, body, [class*="css"] {
         font-family: 'Noto Sans KR', sans-serif;
         background-color: #f4f6f9;
-    }
-    
-    /* 상단 요약 헤더 (Grid Layout 강제 적용) */
-    .summary-header {
-        background-color: white;
-        padding: 20px 30px;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-        margin-bottom: 25px;
-        border-top: 4px solid #e74c3c;
-    }
-    
-    .header-row {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr); /* 4등분 강제 */
-        gap: 20px;
-        width: 100%;
-        margin-top: 20px;
-        padding-top: 20px;
-        border-top: 1px solid #e9ecef;
-    }
-    
-    .header-item {
-        padding-left: 20px;
-        border-left: 1px solid #eee;
-    }
-    .header-item:first-child {
-        padding-left: 0;
-        border-left: none;
     }
     
     /* 카드 스타일 */
@@ -69,11 +40,6 @@ st.markdown("""
         transform: translateY(-3px);
         box-shadow: 0 6px 12px rgba(0,0,0,0.08);
     }
-    
-    /* 폰트 스타일 */
-    .metric-label { font-size: 0.9rem; color: #8898aa; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;}
-    .metric-value { font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;}
-    .metric-unit { font-size: 1.0rem; color: #8898aa; font-weight: 500; }
     
     /* 품질 그리드 */
     .quality-grid {
@@ -100,7 +66,6 @@ st.markdown("""
     
     /* 빨간맛 경고 스타일 */
     .spec-out { color: #e74c3c !important; font-weight: 900 !important; text-decoration: underline; }
-    
     .highlight-label { color: #e74c3c; font-weight: 700; }
     .highlight-val { color: #c0392b; font-weight: 800; }
 
@@ -287,7 +252,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 28.0 (Grid Fix)")
+    st.caption("Ver 28.1 (Layout Force Fix)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -295,12 +260,12 @@ with st.sidebar:
     TODAY_DATA = get_today_data(DATE_KEY, SPECS, DEFAULTS)
     
     st.markdown("---")
-    # [변경] 메뉴 명칭: 거래처 계약 관리 -> 계약 품질 관리
+    # [수정됨] 메뉴 명칭 변경
     menu = st.radio("MENU", [
         "1. 통합 대시보드 (Dashboard)", 
         "2. 운영 실적 입력 (Input)", 
         "3. Lab 분석 보정 (Correction)",
-        "4. 계약 품질 관리 (Contract Spec)", 
+        "4. 계약 품질 관리 (Contract Quality)", 
         "5. QC 오차 분석 (Analysis)"
     ])
     
@@ -312,7 +277,7 @@ with st.sidebar:
         if st.button("데이터 생성"): generate_dummy_data(SPECS, DEFAULTS)
         if st.button("공장 초기화"): factory_reset()
 
-# 상단 헤더 (Grid Layout 적용)
+# 상단 헤더 (Inline Style로 강제 가로 정렬)
 def render_header(data, selected_dt):
     current_month_str = selected_dt.strftime("%Y-%m")
     monthly_prod = 0.0
@@ -326,8 +291,9 @@ def render_header(data, selected_dt):
     utk_308 = data['UTK-308']['qty']
     utk_1106 = data['UTK-1106']['qty']
     
+    # [핵심 수정] display: grid를 인라인 스타일로 직접 적용
     html_code = f"""
-<div class="summary-header">
+<div style="background-color: white; padding: 20px 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); margin-bottom: 25px; border-top: 4px solid #e74c3c;">
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
             <h3 style="margin:0; color:#32325d;">2026 신항공장 생산 통합 시스템 (Pro)</h3>
@@ -338,23 +304,23 @@ def render_header(data, selected_dt):
         </div>
     </div>
     
-    <div class="header-row">
-        <div class="header-item">
-            <div class="metric-label" style="color:#11cdef;">● 월간 PTU 생산량</div>
-            <div class="metric-value">{monthly_prod:,.1f} <span class="metric-unit">Ton</span></div>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; width: 100%; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e9ecef;">
+        <div style="border-right: 1px solid #eee; padding-right: 20px;">
+            <div style="font-size: 0.9rem; color: #11cdef; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">● 월간 PTU 생산량</div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{monthly_prod:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
             <div style="font-size:0.8rem; color:#aaa; margin-top:5px;">(TK-710 + 720 합계)</div>
         </div>
-        <div class="header-item">
-            <div class="metric-label" style="color:#5e72e4;">TK-6101 (SHORE)</div>
-            <div class="metric-value">{tk_6101:,.1f} <span class="metric-unit">Ton</span></div>
+        <div style="border-right: 1px solid #eee; padding-right: 20px;">
+            <div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">TK-6101 (SHORE)</div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{tk_6101:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
         </div>
-        <div class="header-item">
-            <div class="metric-label" style="color:#5e72e4;">UTK-308 (SHORE)</div>
-            <div class="metric-value">{utk_308:,.1f} <span class="metric-unit">Ton</span></div>
+        <div style="border-right: 1px solid #eee; padding-right: 20px;">
+            <div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">UTK-308 (SHORE)</div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{utk_308:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
         </div>
-        <div class="header-item">
-            <div class="metric-label" style="color:#5e72e4;">UTK-1106 (SHORE)</div>
-            <div class="metric-value">{utk_1106:,.1f} <span class="metric-unit">Ton</span></div>
+        <div>
+            <div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">UTK-1106 (SHORE)</div>
+            <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{utk_1106:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
         </div>
     </div>
 </div>
@@ -660,9 +626,9 @@ elif menu == "3. Lab 분석 보정 (Correction)":
                     save_db_state(); st.success("보정 완료"); st.rerun()
 
 # ---------------------------------------------------------
-# 4. 계약 품질 관리 (New Menu)
+# 4. 계약 품질 관리 (Renamed)
 # ---------------------------------------------------------
-elif menu == "4. 계약 품질 관리 (Contract Spec)":
+elif menu == "4. 계약 품질 관리 (Contract Quality)":
     st.subheader("📑 거래처 계약 스펙 관리")
     
     with st.container(border=True):
