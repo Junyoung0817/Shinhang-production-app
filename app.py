@@ -52,11 +52,11 @@ st.markdown("""
     .metric-value { font-size: 1.8rem; font-weight: 800; color: #32325d; }
     .metric-unit { font-size: 0.9rem; color: #8898aa; font-weight: 500; }
     
-    /* 품질 데이터 그리드 (3열로 확장하여 더 많은 정보 표시) */
+    /* 품질 데이터 그리드 */
     .quality-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr; /* 2열 배치 */
-        gap: 8px 15px; /* 세로/가로 간격 */
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 15px;
         margin-top: 15px;
         font-size: 0.85rem;
         background-color: #f8f9fa;
@@ -75,7 +75,7 @@ st.markdown("""
     .q-label { color: #6c757d; font-weight: 500; }
     .q-val { font-weight: 700; color: #495057; }
     
-    /* Total Cl 강조 스타일 */
+    /* 강조 스타일 */
     .highlight-label { color: #e74c3c; font-weight: 700; }
     .highlight-val { color: #c0392b; font-weight: 800; }
 
@@ -96,7 +96,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 2. 데이터 로직
+# 2. 데이터 관리 및 저장 로직
 # ---------------------------------------------------------
 
 DB_FILE = 'factory_db.json'
@@ -140,6 +140,7 @@ def init_system():
         'UTK-308':  {'max': 5400, 'type': 'Shore',  'icon': '🚢', 'color': '#5e72e4'},
         'UTK-1106': {'max': 6650, 'type': 'Shore',  'icon': '🚢', 'color': '#5e72e4'}
     }
+    # 기본값에 inorg_cl 포함 확인
     default_vals = {'qty': 0.0, 'av': 0.0, 'water': 0.0, 'metal': 0.0, 'p': 0.0, 'org_cl': 0.0, 'inorg_cl': 0.0}
     
     if 'daily_db' not in st.session_state: st.session_state.daily_db = load_data_from_file()
@@ -189,7 +190,7 @@ def generate_dummy_data(specs, defaults):
             data['qty'] = round(random.uniform(100, 500), 1)
             data['av'] = round(random.uniform(0.1, 1.0), 3)
             data['org_cl'] = round(random.uniform(5, 20), 1)
-            data['inorg_cl'] = round(random.uniform(1, 5), 1) # 더미에도 Inorganic 추가
+            data['inorg_cl'] = round(random.uniform(1, 5), 1)
             data['water'] = round(random.uniform(10, 100), 1)
             data['metal'] = round(random.uniform(1, 10), 1)
             new_data[t] = data
@@ -246,7 +247,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 23.1 (Cl Detail View)")
+    st.caption("Ver 23.2 (Fix & Complete)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -269,6 +270,7 @@ with st.sidebar:
         if st.button("데이터 생성"): generate_dummy_data(SPECS, DEFAULTS)
         if st.button("공장 초기화"): factory_reset()
 
+# 상단 헤더
 def render_header(data):
     total = sum(data[t]['qty'] for t in SPECS)
     prod = data['TK-710']['qty'] + data['TK-720']['qty']
@@ -320,7 +322,7 @@ if menu == "1. 통합 대시보드 (Dashboard)":
         d = TODAY_DATA[t_name]
         pct = min(d['qty'] / spec['max'], 1.0) * 100
         
-        # [자동 계산] Total Cl = Org + InOrg
+        # [자동 계산] Total Cl
         org_cl = d.get('org_cl', 0)
         inorg_cl = d.get('inorg_cl', 0)
         total_cl = org_cl + inorg_cl
@@ -357,7 +359,8 @@ if menu == "1. 통합 대시보드 (Dashboard)":
                     <div class="q-item"><span class="q-label" style="font-size:0.8em">└ InOrg Cl</span><span class="q-val" style="font-size:0.8em">{inorg_cl:.1f}</span></div>
                     
                     <div class="q-item"><span class="q-label">P</span><span class="q-val">{d['p']:.1f}</span></div>
-                    <div class="q-item"></div> </div>
+                    <div class="q-item"></div>
+                </div>
             </div>
             <div style="margin-bottom:20px"></div>
             """, unsafe_allow_html=True)
@@ -369,14 +372,14 @@ if menu == "1. 통합 대시보드 (Dashboard)":
             rows.append({
                 "탱크": t, "구분": SPECS[t]['type'],
                 "재고": d['qty'], "AV": d['av'], "Water": d['water'],
-                "Total Cl": d.get('org_cl', 0) + d.get('inorg_cl', 0), # 계산
+                "Total Cl": d.get('org_cl', 0) + d.get('inorg_cl', 0),
                 "Org Cl": d.get('org_cl', 0), "InOrg Cl": d.get('inorg_cl', 0),
                 "P": d['p'], "Total Metal": d['metal']
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
 # ---------------------------------------------------------
-# 2. 운영 실적 입력 (Input)
+# 2. 운영 실적 입력
 # ---------------------------------------------------------
 elif menu == "2. 운영 실적 입력 (Input)":
     
@@ -395,7 +398,7 @@ elif menu == "2. 운영 실적 입력 (Input)":
                     c_a, c_b = st.columns(2)
                     av = c_a.number_input("AV", 0.0, step=0.1, format="%.1f")
                     
-                    # [변경] Org Cl / InOrg Cl 분리 입력
+                    # Org Cl / InOrg Cl 분리 입력
                     cl_o = c_b.number_input("Org Cl (ppm)", 0.0, step=0.1, format="%.1f")
                     cl_i = c_b.number_input("InOrg Cl (ppm)", 0.0, step=0.1, format="%.1f")
                     
@@ -427,7 +430,7 @@ elif menu == "2. 운영 실적 입력 (Input)":
                     qw = q1.number_input("Water", 0.0, step=0.1, format="%.1f")
                     qm = q1.number_input("Total Metal", 0.0, step=0.1, format="%.1f")
                     
-                    # [변경] 분리 입력
+                    # Org Cl / InOrg Cl 분리 입력
                     qo = q2.number_input("Org Cl", 0.0, step=0.1, format="%.1f")
                     qi = q2.number_input("InOrg Cl", 0.0, step=0.1, format="%.1f")
                     qp = q2.number_input("P", 0.0, step=0.1, format="%.1f")
@@ -508,7 +511,7 @@ elif menu == "3. Lab 분석 보정 (Correction)":
                 n_av = c_a.number_input("실측 AV", value=float(curr['av']), step=0.1, format="%.1f")
                 n_wa = c_b.number_input("실측 Water", value=float(curr['water']), step=0.1, format="%.1f")
                 
-                # 나머지 항목
+                # 나머지 항목 (Org/InOrg 분리)
                 n_cl = c_a.number_input("실측 Org Cl", value=float(curr['org_cl']), step=0.1, format="%.1f")
                 n_icl = c_b.number_input("실측 InOrg Cl", value=float(curr['inorg_cl']), step=0.1, format="%.1f")
                 n_p = c_a.number_input("실측 P", value=float(curr['p']), step=0.1, format="%.1f")
