@@ -27,6 +27,7 @@ st.markdown("""
         background-color: #f4f6f9;
     }
     
+    /* 상단 요약 헤더 (4열 그리드) */
     .summary-header {
         background-color: white;
         padding: 20px 25px;
@@ -35,7 +36,16 @@ st.markdown("""
         margin-bottom: 25px;
         border-top: 4px solid #e74c3c;
     }
+    .header-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 20px;
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid #e9ecef;
+    }
     
+    /* 카드 스타일 */
     .tank-card {
         background-color: white;
         padding: 20px;
@@ -49,33 +59,34 @@ st.markdown("""
         box-shadow: 0 6px 12px rgba(0,0,0,0.08);
     }
     
-    .metric-value { font-size: 1.8rem; font-weight: 800; color: #32325d; }
+    /* 폰트 스타일 */
+    .metric-label { font-size: 0.85rem; color: #8898aa; font-weight: 600; text-transform: uppercase; margin-bottom: 5px;}
+    .metric-value { font-size: 1.6rem; font-weight: 800; color: #32325d; }
     .metric-unit { font-size: 0.9rem; color: #8898aa; font-weight: 500; }
     
-    /* 품질 데이터 그리드 */
+    /* 품질 그리드 */
     .quality-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 8px 15px;
+        gap: 8px 10px;
         margin-top: 15px;
         font-size: 0.85rem;
         background-color: #f8f9fa;
         padding: 12px;
         border-radius: 8px;
     }
-    .q-item { 
-        display: flex; 
-        justify-content: space-between; 
+    .q-row {
+        display: flex;
+        justify-content: space-between;
         align-items: center;
         border-bottom: 1px dashed #e9ecef;
-        padding-bottom: 4px;
+        padding-bottom: 3px;
     }
-    .q-item:last-child { border-bottom: none; }
+    .q-row:last-child { border-bottom: none; }
     
     .q-label { color: #6c757d; font-weight: 500; }
     .q-val { font-weight: 700; color: #495057; }
     
-    /* 강조 스타일 */
     .highlight-label { color: #e74c3c; font-weight: 700; }
     .highlight-val { color: #c0392b; font-weight: 800; }
 
@@ -84,8 +95,6 @@ st.markdown("""
         border-radius: 8px;
         font-weight: 600;
         height: 45px;
-        border: none;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
     
     [data-testid="stSidebar"] {
@@ -114,9 +123,9 @@ def load_logs_from_file():
         try:
             with open(LOG_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                return data.get('history', []), data.get('qc', [])
-        except: return [], []
-    return [], []
+                return data.get('history', []), data.get('qc', []), data.get('production', {})
+        except: return [], [], {}
+    return [], [], {}
 
 def save_db():
     try:
@@ -126,7 +135,11 @@ def save_db():
 
 def save_logs():
     try:
-        data = {'history': st.session_state.history_log, 'qc': st.session_state.qc_log}
+        data = {
+            'history': st.session_state.history_log,
+            'qc': st.session_state.qc_log,
+            'production': st.session_state.production_log
+        }
         with open(LOG_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
     except: pass
@@ -144,8 +157,11 @@ def init_system():
     
     if 'daily_db' not in st.session_state: st.session_state.daily_db = load_data_from_file()
     if 'history_log' not in st.session_state:
-        h, q = load_logs_from_file()
-        st.session_state.history_log = h; st.session_state.qc_log = q
+        h, q, p = load_logs_from_file()
+        st.session_state.history_log = h
+        st.session_state.qc_log = q
+        st.session_state.production_log = p # 생산량 별도 기록 {날짜: 생산량}
+        
     return tank_specs, default_vals
 
 def get_today_data(date_key, specs, defaults):
@@ -181,8 +197,11 @@ def reset_today_data(date_key, specs, defaults):
 
 def generate_dummy_data(specs, defaults):
     base = datetime.now()
-    for i in range(14, -1, -1):
-        d_key = (base - timedelta(days=i)).strftime("%Y-%m-%d")
+    st.session_state.production_log = {} # 더미 생성 시 초기화
+    
+    for i in range(30, -1, -1):
+        d_date = base - timedelta(days=i)
+        d_key = d_date.strftime("%Y-%m-%d")
         new_data = {}
         for t in specs:
             data = defaults.copy()
@@ -193,11 +212,19 @@ def generate_dummy_data(specs, defaults):
             data['water'] = round(random.uniform(10, 100), 1)
             data['metal'] = round(random.uniform(1, 10), 1)
             new_data[t] = data
+        
         st.session_state.daily_db[d_key] = new_data
-    save_db(); st.toast("테스트 데이터 생성 완료"); time.sleep(0.5); st.rerun()
+        
+        # 더미 생산량 (매일 조금씩 생산했다고 가정)
+        st.session_state.production_log[d_key] = round(random.uniform(200, 400), 1)
+        
+    save_db(); save_logs(); st.toast("테스트 데이터 생성 완료"); time.sleep(0.5); st.rerun()
 
 def factory_reset():
-    st.session_state.daily_db = {}; st.session_state.history_log = []; st.session_state.qc_log = []
+    st.session_state.daily_db = {}
+    st.session_state.history_log = []
+    st.session_state.qc_log = []
+    st.session_state.production_log = {}
     if os.path.exists(DB_FILE): os.remove(DB_FILE)
     if os.path.exists(LOG_FILE): os.remove(LOG_FILE)
     st.rerun()
@@ -208,6 +235,14 @@ def log_action(date_key, action_type, desc, tanks_involved, current_db):
     st.session_state.history_log.append({
         "time": datetime.now().strftime("%H:%M:%S"), "date": date_key, "type": action_type, "desc": desc, "snapshot": snapshot
     })
+    save_logs()
+
+# [NEW] 생산 실적 별도 기록 함수
+def log_production(date_key, amount):
+    if date_key in st.session_state.production_log:
+        st.session_state.production_log[date_key] += amount
+    else:
+        st.session_state.production_log[date_key] = amount
     save_logs()
 
 def log_qc_diff(date_key, tank_name, param, predicted, actual):
@@ -246,7 +281,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 23.6 (Dashboard Fixed)")
+    st.caption("Ver 24.0 (Header & HTML Fix)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -269,16 +304,24 @@ with st.sidebar:
         if st.button("데이터 생성"): generate_dummy_data(SPECS, DEFAULTS)
         if st.button("공장 초기화"): factory_reset()
 
-# 상단 헤더
-def render_header(data):
-    total = sum(data[t]['qty'] for t in SPECS)
-    prod = data['TK-710']['qty'] + data['TK-720']['qty']
-    shore = sum(data[t]['qty'] for t in SPECS if SPECS[t]['type']=='Shore')
+# [수정됨] 상단 헤더: 월간 생산량 및 개별 탱크 재고
+def render_header(data, selected_dt):
+    # 1. 월간 PTU 생산량 계산 (이번달 1일 ~ 현재 선택일까지)
+    current_month_str = selected_dt.strftime("%Y-%m")
+    monthly_prod = 0.0
+    for d_key, amount in st.session_state.production_log.items():
+        if d_key.startswith(current_month_str) and d_key <= DATE_KEY:
+            monthly_prod += amount
+            
+    # 2. Shore Tank 개별 재고
+    tk_6101 = data['TK-6101']['qty']
+    utk_308 = data['UTK-308']['qty']
+    utk_1106 = data['UTK-1106']['qty']
     
-    # [수정] 들여쓰기 제거
-    html_header = f"""
+    # [중요] HTML 들여쓰기 제거
+    html_code = f"""
 <div class="summary-header">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
             <h3 style="margin:0; color:#32325d;">2026 신항공장 생산 통합 시스템 (Pro)</h3>
             <span style="color:#8898aa; font-size:0.9rem;">Date: {DATE_KEY}</span>
@@ -287,25 +330,30 @@ def render_header(data):
             <span style="background:#d4edda; color:#155724; padding:5px 12px; border-radius:20px; font-size:0.85rem; font-weight:600;">● System Active</span>
         </div>
     </div>
-    <div style="display: flex; gap: 40px; border-top: 1px solid #e9ecef; padding-top: 15px;">
-        <div>
-            <div class="metric-label" style="color:#2dce89;">● TOTAL STOCK</div>
-            <div class="metric-value">{total:,.1f} <span class="metric-unit">Ton</span></div>
+    <div class="header-grid">
+        <div style="border-right:1px solid #eee;">
+            <div class="metric-label" style="color:#11cdef;">● 월간 PTU 생산량</div>
+            <div class="metric-value">{monthly_prod:,.1f} <span class="metric-unit">Ton</span></div>
+            <div style="font-size:0.8rem; color:#aaa;">(TK-710 + 720 합계)</div>
         </div>
         <div>
-            <div class="metric-label" style="color:#11cdef;">● PRODUCT (BD)</div>
-            <div class="metric-value">{prod:,.1f} <span class="metric-unit">Ton</span></div>
+            <div class="metric-label" style="color:#5e72e4;">TK-6101 (Shore)</div>
+            <div class="metric-value">{tk_6101:,.1f} <span class="metric-unit">Ton</span></div>
         </div>
         <div>
-            <div class="metric-label" style="color:#5e72e4;">● SHORE TANK</div>
-            <div class="metric-value">{shore:,.1f} <span class="metric-unit">Ton</span></div>
+            <div class="metric-label" style="color:#5e72e4;">UTK-308 (Shore)</div>
+            <div class="metric-value">{utk_308:,.1f} <span class="metric-unit">Ton</span></div>
+        </div>
+        <div>
+            <div class="metric-label" style="color:#5e72e4;">UTK-1106 (Shore)</div>
+            <div class="metric-value">{utk_1106:,.1f} <span class="metric-unit">Ton</span></div>
         </div>
     </div>
 </div>
 """
-    st.markdown(html_header, unsafe_allow_html=True)
+    st.markdown(html_code, unsafe_allow_html=True)
 
-render_header(TODAY_DATA)
+render_header(TODAY_DATA, selected_date)
 
 # ---------------------------------------------------------
 # 1. 통합 대시보드
@@ -328,7 +376,7 @@ if menu == "1. 통합 대시보드 (Dashboard)":
         total_cl = org_cl + inorg_cl
         
         with cols[i % 3]:
-            # [핵심 수정] HTML 코드의 들여쓰기를 완전히 제거하여 코드 블록 인식 방지
+            # [중요] HTML 들여쓰기 제거
             card_html = f"""
 <div class="tank-card">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -347,17 +395,34 @@ if menu == "1. 통합 대시보드 (Dashboard)":
         </div>
     </div>
     <div class="quality-grid">
-        <div class="q-item"><span class="q-label">AV</span><span class="q-val">{d['av']:.2f}</span></div>
-        <div class="q-item"><span class="q-label">Water</span><span class="q-val">{d['water']:.1f}</span></div>
-        <div class="q-item">
+        <div class="q-row">
+            <span class="q-label">AV</span>
+            <span class="q-val">{d['av']:.2f}</span>
+        </div>
+        <div class="q-row">
+            <span class="q-label">Water</span>
+            <span class="q-val">{d['water']:.1f}</span>
+        </div>
+        <div class="q-row">
             <span class="q-label highlight-label">Total Cl</span>
             <span class="q-val highlight-val">{total_cl:.1f}</span>
         </div>
-        <div class="q-item"><span class="q-label">Total Metal</span><span class="q-val">{d['metal']:.1f}</span></div>
-        <div class="q-item"><span class="q-label" style="font-size:0.8em">└ Org Cl</span><span class="q-val" style="font-size:0.8em">{org_cl:.1f}</span></div>
-        <div class="q-item"><span class="q-label" style="font-size:0.8em">└ InOrg Cl</span><span class="q-val" style="font-size:0.8em">{inorg_cl:.1f}</span></div>
-        <div class="q-item"><span class="q-label">P</span><span class="q-val">{d['p']:.1f}</span></div>
-        <div class="q-item"></div>
+        <div class="q-row">
+            <span class="q-label">Total Metal</span>
+            <span class="q-val">{d['metal']:.1f}</span>
+        </div>
+        <div class="q-row">
+            <span class="q-label" style="font-size:0.8em; padding-left:10px;">└ Org Cl</span>
+            <span class="q-val" style="font-size:0.8em;">{org_cl:.1f}</span>
+        </div>
+        <div class="q-row">
+            <span class="q-label" style="font-size:0.8em; padding-left:10px;">└ InOrg Cl</span>
+            <span class="q-val" style="font-size:0.8em;">{inorg_cl:.1f}</span>
+        </div>
+        <div class="q-row">
+            <span class="q-label">P</span>
+            <span class="q-val">{d['p']:.1f}</span>
+        </div>
     </div>
 </div>
 <div style="margin-bottom:20px"></div>
@@ -378,7 +443,7 @@ if menu == "1. 통합 대시보드 (Dashboard)":
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
 # ---------------------------------------------------------
-# 2. 운영 실적 입력 (Input)
+# 2. 운영 실적 입력
 # ---------------------------------------------------------
 elif menu == "2. 운영 실적 입력 (Input)":
     
@@ -434,6 +499,10 @@ elif menu == "2. 운영 실적 입력 (Input)":
                     
                     if st.form_submit_button("저장 (Save)", type="primary"):
                         log_action(DATE_KEY, "생산", f"2차 {dest} +{p_q}", ['TK-310', dest], TODAY_DATA)
+                        
+                        # [NEW] 생산 실적 기록 (PTU 생산량)
+                        log_production(DATE_KEY, p_q)
+                        
                         src = TODAY_DATA['TK-310']; tgt = TODAY_DATA[dest]
                         if src['qty'] < f_q: st.error("재고 부족")
                         else:
