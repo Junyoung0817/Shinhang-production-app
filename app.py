@@ -27,7 +27,6 @@ st.markdown("""
         background-color: #f4f6f9;
     }
     
-    /* 상단 요약 헤더 (4열 그리드) */
     .summary-header {
         background-color: white;
         padding: 20px 25px;
@@ -36,16 +35,7 @@ st.markdown("""
         margin-bottom: 25px;
         border-top: 4px solid #e74c3c;
     }
-    .header-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 20px;
-        margin-top: 15px;
-        padding-top: 15px;
-        border-top: 1px solid #e9ecef;
-    }
     
-    /* 카드 스타일 */
     .tank-card {
         background-color: white;
         padding: 20px;
@@ -59,12 +49,10 @@ st.markdown("""
         box-shadow: 0 6px 12px rgba(0,0,0,0.08);
     }
     
-    /* 폰트 스타일 */
-    .metric-label { font-size: 0.85rem; color: #8898aa; font-weight: 600; text-transform: uppercase; margin-bottom: 5px;}
     .metric-value { font-size: 1.6rem; font-weight: 800; color: #32325d; }
     .metric-unit { font-size: 0.9rem; color: #8898aa; font-weight: 500; }
     
-    /* 품질 그리드 */
+    /* 품질 데이터 그리드 */
     .quality-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -86,6 +74,9 @@ st.markdown("""
     
     .q-label { color: #6c757d; font-weight: 500; }
     .q-val { font-weight: 700; color: #495057; }
+    
+    /* 스펙 아웃 경고 스타일 */
+    .spec-out { color: #e74c3c !important; font-weight: 900 !important; text-decoration: underline; }
     
     .highlight-label { color: #e74c3c; font-weight: 700; }
     .highlight-val { color: #c0392b; font-weight: 800; }
@@ -110,39 +101,38 @@ st.markdown("""
 
 DB_FILE = 'factory_db.json'
 LOG_FILE = 'factory_logs.json'
+CONTRACT_FILE = 'factory_contracts.json'
 
-def load_data_from_file():
-    if os.path.exists(DB_FILE):
+def load_json(file_path):
+    if os.path.exists(file_path):
         try:
-            with open(DB_FILE, 'r', encoding='utf-8') as f: return json.load(f)
+            with open(file_path, 'r', encoding='utf-8') as f: return json.load(f)
         except: return {}
     return {}
 
-def load_logs_from_file():
-    if os.path.exists(LOG_FILE):
-        try:
-            with open(LOG_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data.get('history', []), data.get('qc', []), data.get('production', {})
-        except: return [], [], {}
-    return [], [], {}
-
-def save_db():
+def save_json(file_path, data):
     try:
-        with open(DB_FILE, 'w', encoding='utf-8') as f:
-            json.dump(st.session_state.daily_db, f, indent=4, ensure_ascii=False)
-    except: pass
-
-def save_logs():
-    try:
-        data = {
-            'history': st.session_state.history_log,
-            'qc': st.session_state.qc_log,
-            'production': st.session_state.production_log
-        }
-        with open(LOG_FILE, 'w', encoding='utf-8') as f:
+        with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
     except: pass
+
+# 로드 함수들
+def load_db(): return load_json(DB_FILE)
+def load_logs(): 
+    data = load_json(LOG_FILE)
+    return data.get('history', []), data.get('qc', []), data.get('production', {})
+def load_contracts(): return load_json(CONTRACT_FILE)
+
+# 저장 함수들
+def save_db_state(): save_json(DB_FILE, st.session_state.daily_db)
+def save_logs_state():
+    data = {
+        'history': st.session_state.history_log,
+        'qc': st.session_state.qc_log,
+        'production': st.session_state.production_log
+    }
+    save_json(LOG_FILE, data)
+def save_contracts_state(): save_json(CONTRACT_FILE, st.session_state.contracts)
 
 def init_system():
     tank_specs = {
@@ -155,14 +145,16 @@ def init_system():
     }
     default_vals = {'qty': 0.0, 'av': 0.0, 'water': 0.0, 'metal': 0.0, 'p': 0.0, 'org_cl': 0.0, 'inorg_cl': 0.0}
     
-    if 'daily_db' not in st.session_state:
-        st.session_state.daily_db = load_data_from_file()
+    if 'daily_db' not in st.session_state: st.session_state.daily_db = load_db()
     
     if ('history_log' not in st.session_state) or ('production_log' not in st.session_state):
-        h, q, p = load_logs_from_file()
+        h, q, p = load_logs()
         if 'history_log' not in st.session_state: st.session_state.history_log = h
         if 'qc_log' not in st.session_state: st.session_state.qc_log = q
         if 'production_log' not in st.session_state: st.session_state.production_log = p
+        
+    if 'contracts' not in st.session_state:
+        st.session_state.contracts = load_contracts()
         
     return tank_specs, default_vals
 
@@ -173,13 +165,13 @@ def get_today_data(date_key, specs, defaults):
             past = find_past_data(date_key)
             if past:
                 st.session_state.daily_db[date_key] = past
-                save_db()
+                save_db_state()
                 return past
         return data
     past = find_past_data(date_key)
     if past: st.session_state.daily_db[date_key] = past
     else: st.session_state.daily_db[date_key] = {t: defaults.copy() for t in specs}
-    save_db()
+    save_db_state()
     return st.session_state.daily_db[date_key]
 
 def find_past_data(current_date_str):
@@ -190,12 +182,6 @@ def find_past_data(current_date_str):
             data = st.session_state.daily_db[past]
             if sum(t['qty'] for t in data.values()) > 0: return copy.deepcopy(data)
     return None
-
-def reset_today_data(date_key, specs, defaults):
-    past = find_past_data(date_key)
-    if past: st.session_state.daily_db[date_key] = past
-    else: st.session_state.daily_db[date_key] = {t: defaults.copy() for t in specs}
-    save_db(); time.sleep(0.5); st.rerun()
 
 def generate_dummy_data(specs, defaults):
     base = datetime.now()
@@ -214,19 +200,19 @@ def generate_dummy_data(specs, defaults):
             data['water'] = round(random.uniform(10, 100), 1)
             data['metal'] = round(random.uniform(1, 10), 1)
             new_data[t] = data
-        
         st.session_state.daily_db[d_key] = new_data
         st.session_state.production_log[d_key] = round(random.uniform(200, 400), 1)
         
-    save_db(); save_logs(); st.toast("테스트 데이터 생성 완료"); time.sleep(0.5); st.rerun()
+    save_db_state(); save_logs_state(); st.toast("테스트 데이터 생성 완료"); time.sleep(0.5); st.rerun()
 
 def factory_reset():
     st.session_state.daily_db = {}
     st.session_state.history_log = []
     st.session_state.qc_log = []
-    st.session_state.production_log = {}
-    if os.path.exists(DB_FILE): os.remove(DB_FILE)
-    if os.path.exists(LOG_FILE): os.remove(LOG_FILE)
+    st.session_state.production_log = []
+    st.session_state.contracts = {}
+    for f in [DB_FILE, LOG_FILE, CONTRACT_FILE]:
+        if os.path.exists(f): os.remove(f)
     st.rerun()
 
 def log_action(date_key, action_type, desc, tanks_involved, current_db):
@@ -235,28 +221,28 @@ def log_action(date_key, action_type, desc, tanks_involved, current_db):
     st.session_state.history_log.append({
         "time": datetime.now().strftime("%H:%M:%S"), "date": date_key, "type": action_type, "desc": desc, "snapshot": snapshot
     })
-    save_logs()
+    save_logs_state()
 
 def log_production(date_key, amount):
     if date_key in st.session_state.production_log:
         st.session_state.production_log[date_key] += amount
     else:
         st.session_state.production_log[date_key] = amount
-    save_logs()
+    save_logs_state()
 
 def log_qc_diff(date_key, tank_name, param, predicted, actual):
     if abs(actual - predicted) > 0.001:
         st.session_state.qc_log.append({
             "날짜": date_key, "탱크": tank_name, "항목": param, "예상값": round(predicted, 3), "실측값": round(actual, 3), "오차": round(actual - predicted, 3)
         })
-        save_logs()
+        save_logs_state()
 
 def undo_last_action(current_db):
     if not st.session_state.history_log: return
     last = st.session_state.history_log.pop()
     if not last['snapshot']: return
     for t, data in last['snapshot'].items(): current_db[t] = data
-    save_db(); save_logs(); st.toast(f"취소 완료: {last['desc']}"); time.sleep(0.5); st.rerun()
+    save_db_state(); save_logs_state(); st.toast(f"취소 완료: {last['desc']}"); time.sleep(0.5); st.rerun()
 
 def calc_blend(cq, cv, iq, iv):
     if cq + iq == 0: return 0.0
@@ -269,7 +255,7 @@ def propagate_changes(start_date, tank, changes):
             tgt = st.session_state.daily_db[d][tank]
             for k, v in changes.items():
                 if abs(v) > 0.0001: tgt[k] = max(0.0, tgt[k] + v)
-    save_db()
+    save_db_state()
 
 # ==========================================
 # 3. 메인 화면 구성
@@ -280,7 +266,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 25.0 (Input Enhanced)")
+    st.caption("Ver 26.0 (Contract Spec Check)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -292,7 +278,8 @@ with st.sidebar:
         "1. 통합 대시보드 (Dashboard)", 
         "2. 운영 실적 입력 (Input)", 
         "3. Lab 분석 보정 (Correction)",
-        "4. QC 오차 분석 (Analysis)"
+        "4. 거래처 계약 관리 (Contract)", 
+        "5. QC 오차 분석 (Analysis)"
     ])
     
     st.markdown("---")
@@ -374,6 +361,32 @@ if menu == "1. 통합 대시보드 (Dashboard)":
         total_cl = org_cl + inorg_cl
         
         with cols[i % 3]:
+            # Shore Tank일 경우 거래처 선택 기능 추가
+            contract_check = {}
+            if spec['type'] == 'Shore':
+                c_list = list(st.session_state.contracts.keys())
+                if c_list:
+                    selected_c = st.selectbox(f"📦 {t_name} 출하처", ["선택안함"] + c_list, key=f"sel_{t_name}")
+                    if selected_c != "선택안함":
+                        contract_check = st.session_state.contracts[selected_c]
+                else:
+                    st.caption("등록된 거래처 없음")
+
+            # 스펙 체크 헬퍼 함수 (값이 초과되면 spec-out 클래스 반환)
+            def check_style(val, key):
+                if contract_check and key in contract_check:
+                    limit = contract_check[key]
+                    if val > limit: return "q-val spec-out"
+                return "q-val"
+
+            # 스타일 결정
+            s_av = check_style(d['av'], 'av')
+            s_water = check_style(d['water'], 'water')
+            s_cl = check_style(total_cl, 'total_cl')
+            s_p = check_style(d['p'], 'p')
+            s_metal = check_style(d['metal'], 'metal')
+            
+            # HTML 생성
             card_html = f"""
 <div class="tank-card">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -394,19 +407,19 @@ if menu == "1. 통합 대시보드 (Dashboard)":
     <div class="quality-grid">
         <div class="q-row">
             <span class="q-label">AV</span>
-            <span class="q-val">{d['av']:.2f}</span>
+            <span class="{s_av}">{d['av']:.2f}</span>
         </div>
         <div class="q-row">
             <span class="q-label">Water</span>
-            <span class="q-val">{d['water']:.1f}</span>
+            <span class="{s_water}">{d['water']:.1f}</span>
         </div>
         <div class="q-row">
             <span class="q-label highlight-label">Total Cl</span>
-            <span class="q-val highlight-val">{total_cl:.1f}</span>
+            <span class="{s_cl}">{total_cl:.1f}</span>
         </div>
         <div class="q-row">
             <span class="q-label">Total Metal</span>
-            <span class="q-val">{d['metal']:.1f}</span>
+            <span class="{s_metal}">{d['metal']:.1f}</span>
         </div>
         <div class="q-row">
             <span class="q-label" style="font-size:0.8em; padding-left:10px;">└ Org Cl</span>
@@ -418,7 +431,7 @@ if menu == "1. 통합 대시보드 (Dashboard)":
         </div>
         <div class="q-row">
             <span class="q-label">P</span>
-            <span class="q-val">{d['p']:.1f}</span>
+            <span class="{s_p}">{d['p']:.1f}</span>
         </div>
     </div>
 </div>
@@ -444,19 +457,16 @@ if menu == "1. 통합 대시보드 (Dashboard)":
 # ---------------------------------------------------------
 elif menu == "2. 운영 실적 입력 (Input)":
     
-    # [변경] 탭 이름 수정 및 Process Info 제거
     t1, t2, t3 = st.tabs(["1차 정제 공정", "2차 정제 공정", "이송/출하"])
     
     with t1:
         c1, c2 = st.columns([1, 2])
         with c1:
-            # [변경] Process Info 제거, 현 품질 상세 표시 추가
             tk = TODAY_DATA['TK-310']
             st.markdown("##### 🏭 TK-310 현황")
             with st.container(border=True):
                 st.metric("현재고", f"{tk['qty']:.1f} Ton")
                 st.markdown("---")
-                st.caption("현재 품질 Specs")
                 col_a, col_b = st.columns(2)
                 col_a.metric("AV", f"{tk['av']:.2f}")
                 col_b.metric("Water", f"{tk['water']:.1f}")
@@ -481,18 +491,16 @@ elif menu == "2. 운영 실적 입력 (Input)":
                         t['org_cl'] = calc_blend(t['qty'], t['org_cl'], qty, cl_o)
                         t['inorg_cl'] = calc_blend(t['qty'], t['inorg_cl'], qty, cl_i)
                         t['qty'] += qty
-                        save_db(); st.success("저장 완료"); st.rerun()
+                        save_db_state(); st.success("저장 완료"); st.rerun()
 
     with t2:
         c1, c2 = st.columns([1, 2])
         with c1:
-            # [변경] Process Info 제거, TK-310(Source) 현황 표시
             tk = TODAY_DATA['TK-310']
             st.markdown("##### 🏭 원료(TK-310) 현황")
             with st.container(border=True):
                 st.metric("투입 가능 재고", f"{tk['qty']:.1f} Ton")
                 st.markdown("---")
-                st.caption("투입 원료 품질")
                 col_a, col_b = st.columns(2)
                 col_a.metric("AV", f"{tk['av']:.2f}")
                 col_b.metric("Water", f"{tk['water']:.1f}")
@@ -517,9 +525,7 @@ elif menu == "2. 운영 실적 입력 (Input)":
                     
                     if st.form_submit_button("저장 (Save)", type="primary"):
                         log_action(DATE_KEY, "생산", f"2차 {dest} +{p_q}", ['TK-310', dest], TODAY_DATA)
-                        
                         log_production(DATE_KEY, p_q)
-                        
                         src = TODAY_DATA['TK-310']; tgt = TODAY_DATA[dest]
                         if src['qty'] < f_q: st.error("재고 부족")
                         else:
@@ -530,7 +536,7 @@ elif menu == "2. 운영 실적 입력 (Input)":
                             tgt['inorg_cl'] = calc_blend(tgt['qty'], tgt['inorg_cl'], p_q, qi)
                             tgt['p'] = calc_blend(tgt['qty'], tgt['p'], p_q, qp)
                             src['qty'] -= f_q; tgt['qty'] += p_q
-                            save_db(); st.success("저장 완료"); st.rerun()
+                            save_db_state(); st.success("저장 완료"); st.rerun()
 
     with t3:
         c1, c2 = st.columns(2)
@@ -549,7 +555,7 @@ elif menu == "2. 운영 실적 입력 (Input)":
                             for k in DEFAULTS: 
                                 if k!='qty': tgt[k] = calc_blend(tgt['qty'], tgt[k], q, src[k])
                             src['qty'] -= q; tgt['qty'] += q
-                            save_db(); st.success("완료"); st.rerun()
+                            save_db_state(); st.success("완료"); st.rerun()
         with c2:
             with st.container(border=True):
                 st.markdown("#### 🚢 출하 (Shipment)")
@@ -561,7 +567,7 @@ elif menu == "2. 운영 실적 입력 (Input)":
                         tk = TODAY_DATA[s]
                         tk['qty'] -= q; 
                         if tk['qty'] < 0: tk['qty'] = 0
-                        save_db(); st.success("완료"); st.rerun()
+                        save_db_state(); st.success("완료"); st.rerun()
 
 # ---------------------------------------------------------
 # 3. Lab 분석 보정 (Correction)
@@ -603,7 +609,6 @@ elif menu == "3. Lab 분석 보정 (Correction)":
                 n_av = c_a.number_input("실측 AV", value=float(curr['av']), step=0.1, format="%.1f")
                 n_wa = c_b.number_input("실측 Water", value=float(curr['water']), step=0.1, format="%.1f")
                 
-                # 나머지 항목 (Org/InOrg 분리)
                 n_cl = c_a.number_input("실측 Org Cl", value=float(curr['org_cl']), step=0.1, format="%.1f")
                 n_icl = c_b.number_input("실측 InOrg Cl", value=float(curr['inorg_cl']), step=0.1, format="%.1f")
                 n_p = c_a.number_input("실측 P", value=float(curr['p']), step=0.1, format="%.1f")
@@ -619,7 +624,6 @@ elif menu == "3. Lab 분석 보정 (Correction)":
                     }
                     log_action(edit_key, "분석반영", f"{target_tank} 보정", [target_tank], edit_data)
                     
-                    # QC 로깅 (모든 항목)
                     check_list = [
                         ("재고", curr['qty'], n_qty), ("AV", curr['av'], n_av), ("Water", curr['water'], n_wa),
                         ("Org Cl", curr['org_cl'], n_cl), ("InOrg Cl", curr['inorg_cl'], n_icl),
@@ -632,12 +636,69 @@ elif menu == "3. Lab 분석 보정 (Correction)":
                     curr['org_cl'] = n_cl; curr['inorg_cl'] = n_icl; curr['p'] = n_p; curr['metal'] = n_mt
                     
                     if auto_sync: propagate_changes(edit_key, target_tank, deltas)
-                    save_db(); st.success("보정 완료"); st.rerun()
+                    save_db_state(); st.success("보정 완료"); st.rerun()
 
 # ---------------------------------------------------------
-# 4. QC 오차 분석
+# 4. 거래처 계약 관리 (New Menu)
 # ---------------------------------------------------------
-elif menu == "4. QC 오차 분석 (Analysis)":
+elif menu == "4. 거래처 계약 관리 (Contract)":
+    st.subheader("📑 거래처 계약 스펙 관리")
+    st.info("거래처별 요구 품질 스펙(Max Limit)을 등록하면, 대시보드에서 품질 경고를 볼 수 있습니다.")
+    
+    with st.container(border=True):
+        c1, c2 = st.columns([1, 2])
+        
+        with c1:
+            st.markdown("#### 신규 계약 등록")
+            with st.form("contract_form"):
+                c_name = st.text_input("거래처명 (Contractor)")
+                st.caption("Max Quality Limits")
+                l_av = st.number_input("Max AV", 0.0, step=0.1)
+                l_water = st.number_input("Max Water", 0.0, step=10.0)
+                l_cl = st.number_input("Max Total Cl", 0.0, step=1.0)
+                l_p = st.number_input("Max P", 0.0, step=1.0)
+                l_metal = st.number_input("Max Metal", 0.0, step=1.0)
+                
+                if st.form_submit_button("계약 등록/수정", type="primary"):
+                    if c_name:
+                        st.session_state.contracts[c_name] = {
+                            'av': l_av, 'water': l_water, 'total_cl': l_cl, 'p': l_p, 'metal': l_metal
+                        }
+                        save_contracts_state()
+                        st.success(f"{c_name} 등록 완료")
+                        st.rerun()
+                    else:
+                        st.error("거래처명을 입력하세요.")
+        
+        with c2:
+            st.markdown("#### 등록된 계약 목록")
+            if st.session_state.contracts:
+                c_data = []
+                for name, specs in st.session_state.contracts.items():
+                    row = specs.copy()
+                    row['Contractor'] = name
+                    c_data.append(row)
+                
+                df_c = pd.DataFrame(c_data)
+                # 컬럼 순서 정리
+                df_c = df_c[['Contractor', 'av', 'water', 'total_cl', 'p', 'metal']]
+                st.dataframe(df_c, hide_index=True, use_container_width=True)
+                
+                # 삭제 기능
+                d_target = st.selectbox("삭제할 거래처", ["선택"] + list(st.session_state.contracts.keys()))
+                if st.button("계약 삭제"):
+                    if d_target != "선택":
+                        del st.session_state.contracts[d_target]
+                        save_contracts_state()
+                        st.success("삭제 완료")
+                        st.rerun()
+            else:
+                st.write("등록된 계약이 없습니다.")
+
+# ---------------------------------------------------------
+# 5. QC 오차 분석
+# ---------------------------------------------------------
+elif menu == "5. QC 오차 분석 (Analysis)":
     st.subheader("📈 QC 오차 트렌드")
     
     if not st.session_state.qc_log:
