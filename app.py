@@ -123,7 +123,6 @@ def load_logs_from_file():
         try:
             with open(LOG_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # production key가 없을 경우 빈 딕셔너리 반환
                 return data.get('history', []), data.get('qc', []), data.get('production', {})
         except: return [], [], {}
     return [], [], {}
@@ -147,20 +146,18 @@ def save_logs():
 
 def init_system():
     tank_specs = {
-        'TK-310':   {'max': 750,  'type': 'Buffer', 'icon': '🧪', 'color': '#2dce89'},
-        'TK-710':   {'max': 760,  'type': 'Prod',   'icon': '🛢️', 'color': '#11cdef'},
-        'TK-720':   {'max': 760,  'type': 'Prod',   'icon': '🛢️', 'color': '#11cdef'},
+        'TK-310':   {'max': 750,  'type': 'Buffer', 'icon': '🏭', 'color': '#2dce89'},
+        'TK-710':   {'max': 760,  'type': 'Prod',   'icon': '🏭', 'color': '#11cdef'},
+        'TK-720':   {'max': 760,  'type': 'Prod',   'icon': '🏭', 'color': '#11cdef'},
         'TK-6101':  {'max': 5700, 'type': 'Shore',  'icon': '🚢', 'color': '#5e72e4'},
         'UTK-308':  {'max': 5400, 'type': 'Shore',  'icon': '🚢', 'color': '#5e72e4'},
         'UTK-1106': {'max': 6650, 'type': 'Shore',  'icon': '🚢', 'color': '#5e72e4'}
     }
     default_vals = {'qty': 0.0, 'av': 0.0, 'water': 0.0, 'metal': 0.0, 'p': 0.0, 'org_cl': 0.0, 'inorg_cl': 0.0}
     
-    # DB 초기화
     if 'daily_db' not in st.session_state:
         st.session_state.daily_db = load_data_from_file()
     
-    # [수정됨] 로그 데이터 초기화 (키가 하나라도 없으면 다시 로드)
     if ('history_log' not in st.session_state) or ('production_log' not in st.session_state):
         h, q, p = load_logs_from_file()
         if 'history_log' not in st.session_state: st.session_state.history_log = h
@@ -283,7 +280,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 24.1 (Init Fix)")
+    st.caption("Ver 25.0 (Input Enhanced)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -308,17 +305,14 @@ with st.sidebar:
 
 # 상단 헤더
 def render_header(data, selected_dt):
-    # 1. 월간 PTU 생산량 계산
     current_month_str = selected_dt.strftime("%Y-%m")
     monthly_prod = 0.0
     
-    # production_log가 없는 경우 대비 (방어 코드)
     if 'production_log' in st.session_state:
         for d_key, amount in st.session_state.production_log.items():
             if d_key.startswith(current_month_str) and d_key <= DATE_KEY:
                 monthly_prod += amount
             
-    # 2. Shore Tank 개별 재고
     tk_6101 = data['TK-6101']['qty']
     utk_308 = data['UTK-308']['qty']
     utk_1106 = data['UTK-1106']['qty']
@@ -450,16 +444,28 @@ if menu == "1. 통합 대시보드 (Dashboard)":
 # ---------------------------------------------------------
 elif menu == "2. 운영 실적 입력 (Input)":
     
-    t1, t2, t3 = st.tabs(["1차 공정 (R-1140)", "2차 정제 (EV-6000)", "이송/출하"])
+    # [변경] 탭 이름 수정 및 Process Info 제거
+    t1, t2, t3 = st.tabs(["1차 정제 공정", "2차 정제 공정", "이송/출하"])
     
     with t1:
         c1, c2 = st.columns([1, 2])
         with c1:
-            st.info("📌 **Process Info**\n\n원료 투입 → 반응 → TK-310 입고")
-            st.metric("TK-310 현재고", f"{TODAY_DATA['TK-310']['qty']:.1f} Ton")
+            # [변경] Process Info 제거, 현 품질 상세 표시 추가
+            tk = TODAY_DATA['TK-310']
+            st.markdown("##### 🏭 TK-310 현황")
+            with st.container(border=True):
+                st.metric("현재고", f"{tk['qty']:.1f} Ton")
+                st.markdown("---")
+                st.caption("현재 품질 Specs")
+                col_a, col_b = st.columns(2)
+                col_a.metric("AV", f"{tk['av']:.2f}")
+                col_b.metric("Water", f"{tk['water']:.1f}")
+                col_a.metric("Org Cl", f"{tk['org_cl']:.1f}")
+                col_b.metric("InOrg Cl", f"{tk['inorg_cl']:.1f}")
+
         with c2:
             with st.container(border=True):
-                st.markdown("#### 📝 1차 생산 실적")
+                st.markdown("#### 📝 1차 생산 실적 입력")
                 with st.form("f1"):
                     qty = st.number_input("생산량 (Ton)", 0.0, step=10.0)
                     c_a, c_b = st.columns(2)
@@ -480,11 +486,20 @@ elif menu == "2. 운영 실적 입력 (Input)":
     with t2:
         c1, c2 = st.columns([1, 2])
         with c1:
-            st.info("📌 **Process Info**\n\nTK-310 → 정제 → 제품 탱크")
-            st.metric("TK-310 잔량", f"{TODAY_DATA['TK-310']['qty']:.1f} Ton")
+            # [변경] Process Info 제거, TK-310(Source) 현황 표시
+            tk = TODAY_DATA['TK-310']
+            st.markdown("##### 🏭 원료(TK-310) 현황")
+            with st.container(border=True):
+                st.metric("투입 가능 재고", f"{tk['qty']:.1f} Ton")
+                st.markdown("---")
+                st.caption("투입 원료 품질")
+                col_a, col_b = st.columns(2)
+                col_a.metric("AV", f"{tk['av']:.2f}")
+                col_b.metric("Water", f"{tk['water']:.1f}")
+                
         with c2:
             with st.container(border=True):
-                st.markdown("#### 📝 2차 정제 실적")
+                st.markdown("#### 📝 2차 정제 실적 입력")
                 with st.form("f2"):
                     c_1, c_2, c_3 = st.columns(3)
                     f_q = c_1.number_input("투입량 (Ton)", 0.0)
@@ -588,6 +603,7 @@ elif menu == "3. Lab 분석 보정 (Correction)":
                 n_av = c_a.number_input("실측 AV", value=float(curr['av']), step=0.1, format="%.1f")
                 n_wa = c_b.number_input("실측 Water", value=float(curr['water']), step=0.1, format="%.1f")
                 
+                # 나머지 항목 (Org/InOrg 분리)
                 n_cl = c_a.number_input("실측 Org Cl", value=float(curr['org_cl']), step=0.1, format="%.1f")
                 n_icl = c_b.number_input("실측 InOrg Cl", value=float(curr['inorg_cl']), step=0.1, format="%.1f")
                 n_p = c_a.number_input("실측 P", value=float(curr['p']), step=0.1, format="%.1f")
@@ -603,6 +619,7 @@ elif menu == "3. Lab 분석 보정 (Correction)":
                     }
                     log_action(edit_key, "분석반영", f"{target_tank} 보정", [target_tank], edit_data)
                     
+                    # QC 로깅 (모든 항목)
                     check_list = [
                         ("재고", curr['qty'], n_qty), ("AV", curr['av'], n_av), ("Water", curr['water'], n_wa),
                         ("Org Cl", curr['org_cl'], n_cl), ("InOrg Cl", curr['inorg_cl'], n_icl),
