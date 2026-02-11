@@ -27,7 +27,7 @@ st.markdown("""
         background-color: #f4f6f9;
     }
     
-    /* 상단 헤더 (Flexbox) */
+    /* 상단 요약 헤더 (Grid Layout 강제 적용) */
     .summary-header {
         background-color: white;
         padding: 20px 30px;
@@ -38,10 +38,9 @@ st.markdown("""
     }
     
     .header-row {
-        display: flex;
-        flex-direction: row;
-        justify-content: space-between;
-        align-items: flex-start;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr); /* 4등분 강제 */
+        gap: 20px;
         width: 100%;
         margin-top: 20px;
         padding-top: 20px;
@@ -49,11 +48,13 @@ st.markdown("""
     }
     
     .header-item {
-        flex: 1;
         padding-left: 20px;
         border-left: 1px solid #eee;
     }
-    .header-item:first-child { padding-left: 0; border-left: none; }
+    .header-item:first-child {
+        padding-left: 0;
+        border-left: none;
+    }
     
     /* 카드 스타일 */
     .tank-card {
@@ -96,6 +97,9 @@ st.markdown("""
     
     .q-label { color: #6c757d; font-weight: 500; }
     .q-val { font-weight: 700; color: #495057; }
+    
+    /* 빨간맛 경고 스타일 */
+    .spec-out { color: #e74c3c !important; font-weight: 900 !important; text-decoration: underline; }
     
     .highlight-label { color: #e74c3c; font-weight: 700; }
     .highlight-val { color: #c0392b; font-weight: 800; }
@@ -283,7 +287,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 27.0 (Final Complete)")
+    st.caption("Ver 28.0 (Grid Fix)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -291,11 +295,12 @@ with st.sidebar:
     TODAY_DATA = get_today_data(DATE_KEY, SPECS, DEFAULTS)
     
     st.markdown("---")
+    # [변경] 메뉴 명칭: 거래처 계약 관리 -> 계약 품질 관리
     menu = st.radio("MENU", [
         "1. 통합 대시보드 (Dashboard)", 
         "2. 운영 실적 입력 (Input)", 
         "3. Lab 분석 보정 (Correction)",
-        "4. 거래처 계약 관리 (Contract)", 
+        "4. 계약 품질 관리 (Contract Spec)", 
         "5. QC 오차 분석 (Analysis)"
     ])
     
@@ -307,7 +312,7 @@ with st.sidebar:
         if st.button("데이터 생성"): generate_dummy_data(SPECS, DEFAULTS)
         if st.button("공장 초기화"): factory_reset()
 
-# 상단 헤더
+# 상단 헤더 (Grid Layout 적용)
 def render_header(data, selected_dt):
     current_month_str = selected_dt.strftime("%Y-%m")
     monthly_prod = 0.0
@@ -379,7 +384,7 @@ if menu == "1. 통합 대시보드 (Dashboard)":
         total_cl = org_cl + inorg_cl
         
         with cols[i % 3]:
-            # 계약 체크 로직
+            # 계약 체크
             contract_check = {}
             if spec['type'] == 'Shore':
                 c_list = list(st.session_state.contracts.keys())
@@ -390,7 +395,6 @@ if menu == "1. 통합 대시보드 (Dashboard)":
                 else:
                     st.caption("등록된 계약 없음")
 
-            # 스타일 생성 함수 (Inline Style로 빨간색 강제 적용)
             def get_val_style(val, key):
                 if contract_check and key in contract_check:
                     limit = contract_check[key]
@@ -463,4 +467,269 @@ if menu == "1. 통합 대시보드 (Dashboard)":
             rows.append({
                 "탱크": t, "구분": SPECS[t]['type'],
                 "재고": d['qty'], "AV": d['av'], "Water": d['water'],
-                "Total Cl": d.get('org_cl', 0) + d.get('inorg_cl',
+                "Total Cl": d.get('org_cl', 0) + d.get('inorg_cl', 0),
+                "Org Cl": d.get('org_cl', 0), "InOrg Cl": d.get('inorg_cl', 0),
+                "P": d['p'], "Total Metal": d['metal']
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+# ---------------------------------------------------------
+# 2. 운영 실적 입력
+# ---------------------------------------------------------
+elif menu == "2. 운영 실적 입력 (Input)":
+    
+    t1, t2, t3 = st.tabs(["1차 정제 공정", "2차 정제 공정", "이송/출하"])
+    
+    with t1:
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            tk = TODAY_DATA['TK-310']
+            st.markdown("##### 🏭 TK-310 현황")
+            with st.container(border=True):
+                st.metric("현재고", f"{tk['qty']:.1f} Ton")
+                st.markdown("---")
+                col_a, col_b = st.columns(2)
+                col_a.metric("AV", f"{tk['av']:.2f}")
+                col_b.metric("Water", f"{tk['water']:.1f}")
+                col_a.metric("Org Cl", f"{tk['org_cl']:.1f}")
+                col_b.metric("InOrg Cl", f"{tk['inorg_cl']:.1f}")
+
+        with c2:
+            with st.container(border=True):
+                st.markdown("#### 📝 1차 생산 실적 입력")
+                with st.form("f1"):
+                    qty = st.number_input("생산량 (Ton)", 0.0, step=10.0)
+                    c_a, c_b = st.columns(2)
+                    av = c_a.number_input("AV", 0.0, step=0.1, format="%.1f")
+                    
+                    cl_o = c_b.number_input("Org Cl (ppm)", 0.0, step=0.1, format="%.1f")
+                    cl_i = c_b.number_input("InOrg Cl (ppm)", 0.0, step=0.1, format="%.1f")
+                    
+                    if st.form_submit_button("저장 (Save)", type="primary"):
+                        log_action(DATE_KEY, "입고", f"1차 +{qty}", ['TK-310'], TODAY_DATA)
+                        t = TODAY_DATA['TK-310']
+                        t['av'] = calc_blend(t['qty'], t['av'], qty, av)
+                        t['org_cl'] = calc_blend(t['qty'], t['org_cl'], qty, cl_o)
+                        t['inorg_cl'] = calc_blend(t['qty'], t['inorg_cl'], qty, cl_i)
+                        t['qty'] += qty
+                        save_db_state(); st.success("저장 완료"); st.rerun()
+
+    with t2:
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            tk = TODAY_DATA['TK-310']
+            st.markdown("##### 🏭 원료(TK-310) 현황")
+            with st.container(border=True):
+                st.metric("투입 가능 재고", f"{tk['qty']:.1f} Ton")
+                st.markdown("---")
+                col_a, col_b = st.columns(2)
+                col_a.metric("AV", f"{tk['av']:.2f}")
+                col_b.metric("Water", f"{tk['water']:.1f}")
+                
+        with c2:
+            with st.container(border=True):
+                st.markdown("#### 📝 2차 정제 실적 입력")
+                with st.form("f2"):
+                    c_1, c_2, c_3 = st.columns(3)
+                    f_q = c_1.number_input("투입량 (Ton)", 0.0)
+                    dest = c_2.selectbox("생산 탱크", ["TK-710", "TK-720"])
+                    p_q = c_3.number_input("생산량 (Ton)", 0.0)
+                    st.markdown("---")
+                    q1, q2 = st.columns(2)
+                    qa = q1.number_input("AV", 0.0, step=0.1, format="%.1f")
+                    qw = q1.number_input("Water", 0.0, step=0.1, format="%.1f")
+                    qm = q1.number_input("Total Metal", 0.0, step=0.1, format="%.1f")
+                    
+                    qo = q2.number_input("Org Cl", 0.0, step=0.1, format="%.1f")
+                    qi = q2.number_input("InOrg Cl", 0.0, step=0.1, format="%.1f")
+                    qp = q2.number_input("P", 0.0, step=0.1, format="%.1f")
+                    
+                    if st.form_submit_button("저장 (Save)", type="primary"):
+                        log_action(DATE_KEY, "생산", f"2차 {dest} +{p_q}", ['TK-310', dest], TODAY_DATA)
+                        log_production(DATE_KEY, p_q)
+                        src = TODAY_DATA['TK-310']; tgt = TODAY_DATA[dest]
+                        if src['qty'] < f_q: st.error("재고 부족")
+                        else:
+                            tgt['av'] = calc_blend(tgt['qty'], tgt['av'], p_q, qa)
+                            tgt['water'] = calc_blend(tgt['qty'], tgt['water'], p_q, qw)
+                            tgt['metal'] = calc_blend(tgt['qty'], tgt['metal'], p_q, qm)
+                            tgt['org_cl'] = calc_blend(tgt['qty'], tgt['org_cl'], p_q, qo)
+                            tgt['inorg_cl'] = calc_blend(tgt['qty'], tgt['inorg_cl'], p_q, qi)
+                            tgt['p'] = calc_blend(tgt['qty'], tgt['p'], p_q, qp)
+                            src['qty'] -= f_q; tgt['qty'] += p_q
+                            save_db_state(); st.success("저장 완료"); st.rerun()
+
+    with t3:
+        c1, c2 = st.columns(2)
+        with c1:
+            with st.container(border=True):
+                st.markdown("#### 🚛 이송 (Transfer)")
+                with st.form("ft"):
+                    f = st.selectbox("From", ["TK-710", "TK-720"])
+                    t = st.selectbox("To", ["TK-6101", "UTK-308", "UTK-1106"])
+                    q = st.number_input("이송량", 0.0)
+                    if st.form_submit_button("이송 실행"):
+                        log_action(DATE_KEY, "이송", f"{f}->{t} {q}", [f, t], TODAY_DATA)
+                        src = TODAY_DATA[f]; tgt = TODAY_DATA[t]
+                        if src['qty'] < q: st.error("부족")
+                        else:
+                            for k in DEFAULTS: 
+                                if k!='qty': tgt[k] = calc_blend(tgt['qty'], tgt[k], q, src[k])
+                            src['qty'] -= q; tgt['qty'] += q
+                            save_db_state(); st.success("완료"); st.rerun()
+        with c2:
+            with st.container(border=True):
+                st.markdown("#### 🚢 출하 (Shipment)")
+                with st.form("fs"):
+                    s = st.selectbox("출하 탱크", ["TK-6101", "UTK-308", "UTK-1106"])
+                    q = st.number_input("선적량 (Ton)", 0.0)
+                    if st.form_submit_button("선적 실행", type="primary"):
+                        log_action(DATE_KEY, "선적", f"{s} -{q}", [s], TODAY_DATA)
+                        tk = TODAY_DATA[s]
+                        tk['qty'] -= q; 
+                        if tk['qty'] < 0: tk['qty'] = 0
+                        save_db_state(); st.success("완료"); st.rerun()
+
+# ---------------------------------------------------------
+# 3. Lab 분석 보정 (Correction)
+# ---------------------------------------------------------
+elif menu == "3. Lab 분석 보정 (Correction)":
+    
+    with st.container(border=True):
+        st.subheader("🧪 Lab 데이터 보정")
+        st.markdown("실험실 분석 결과를 입력하면, **오차만큼 미래 데이터까지 자동 보정**됩니다.")
+        
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            edit_date = st.date_input("분석(샘플링) 날짜", datetime.now() - timedelta(days=1))
+            edit_key = edit_date.strftime("%Y-%m-%d")
+            
+            if edit_key not in st.session_state.daily_db:
+                 new_db = get_today_data(edit_key, SPECS, DEFAULTS)
+            edit_data = st.session_state.daily_db[edit_key]
+            
+            target_tank = st.selectbox("대상 탱크", list(SPECS.keys()))
+            curr = edit_data[target_tank]
+            
+            st.markdown(f"###### 📊 {target_tank} 현재 전산값 (System Data)")
+            sys_df = pd.DataFrame({
+                "항목": ["재고", "AV", "Water", "Org Cl", "InOrg Cl", "P", "Total Metal"],
+                "값": [
+                    f"{curr['qty']:.1f}", f"{curr['av']:.2f}", f"{curr['water']:.1f}",
+                    f"{curr['org_cl']:.1f}", f"{curr['inorg_cl']:.1f}",
+                    f"{curr['p']:.1f}", f"{curr['metal']:.1f}"
+                ]
+            })
+            st.dataframe(sys_df, hide_index=True, use_container_width=True)
+
+        with c2:
+            with st.form("correction_form"):
+                st.markdown("##### 📝 실측값 입력 (Lab Data)")
+                n_qty = st.number_input("실측 재고", value=float(curr['qty']))
+                c_a, c_b = st.columns(2)
+                n_av = c_a.number_input("실측 AV", value=float(curr['av']), step=0.1, format="%.1f")
+                n_wa = c_b.number_input("실측 Water", value=float(curr['water']), step=0.1, format="%.1f")
+                
+                n_cl = c_a.number_input("실측 Org Cl", value=float(curr['org_cl']), step=0.1, format="%.1f")
+                n_icl = c_b.number_input("실측 InOrg Cl", value=float(curr['inorg_cl']), step=0.1, format="%.1f")
+                n_p = c_a.number_input("실측 P", value=float(curr['p']), step=0.1, format="%.1f")
+                n_mt = c_b.number_input("실측 Total Metal", value=float(curr['metal']), step=0.1, format="%.1f")
+                
+                auto_sync = st.checkbox("✅ 미래 데이터 자동 보정 (Auto-Sync)", value=True)
+                
+                if st.form_submit_button("보정 실행", type="primary"):
+                    deltas = {
+                        'qty': n_qty - curr['qty'], 'av': n_av - curr['av'], 'water': n_wa - curr['water'],
+                        'org_cl': n_cl - curr['org_cl'], 'inorg_cl': n_icl - curr['inorg_cl'],
+                        'p': n_p - curr['p'], 'metal': n_mt - curr['metal']
+                    }
+                    log_action(edit_key, "분석반영", f"{target_tank} 보정", [target_tank], edit_data)
+                    
+                    check_list = [
+                        ("재고", curr['qty'], n_qty), ("AV", curr['av'], n_av), ("Water", curr['water'], n_wa),
+                        ("Org Cl", curr['org_cl'], n_cl), ("InOrg Cl", curr['inorg_cl'], n_icl),
+                        ("P", curr['p'], n_p), ("Total Metal", curr['metal'], n_mt)
+                    ]
+                    for label, p_val, a_val in check_list:
+                        log_qc_diff(edit_key, target_tank, label, p_val, a_val)
+                    
+                    curr['qty'] = n_qty; curr['av'] = n_av; curr['water'] = n_wa
+                    curr['org_cl'] = n_cl; curr['inorg_cl'] = n_icl; curr['p'] = n_p; curr['metal'] = n_mt
+                    
+                    if auto_sync: propagate_changes(edit_key, target_tank, deltas)
+                    save_db_state(); st.success("보정 완료"); st.rerun()
+
+# ---------------------------------------------------------
+# 4. 계약 품질 관리 (New Menu)
+# ---------------------------------------------------------
+elif menu == "4. 계약 품질 관리 (Contract Spec)":
+    st.subheader("📑 거래처 계약 스펙 관리")
+    
+    with st.container(border=True):
+        c1, c2 = st.columns([1, 2])
+        
+        with c1:
+            st.markdown("#### 신규 계약 등록")
+            with st.form("contract_form"):
+                c_name = st.text_input("거래처명 (Contractor)")
+                st.caption("Max Quality Limits")
+                l_av = st.number_input("Max AV", 0.0, step=0.1)
+                l_water = st.number_input("Max Water", 0.0, step=10.0)
+                l_cl = st.number_input("Max Total Cl", 0.0, step=1.0)
+                l_p = st.number_input("Max P", 0.0, step=1.0)
+                l_metal = st.number_input("Max Metal", 0.0, step=1.0)
+                
+                if st.form_submit_button("계약 등록/수정", type="primary"):
+                    if c_name:
+                        st.session_state.contracts[c_name] = {
+                            'av': l_av, 'water': l_water, 'total_cl': l_cl, 'p': l_p, 'metal': l_metal
+                        }
+                        save_contracts_state()
+                        st.success(f"{c_name} 등록 완료")
+                        st.rerun()
+                    else:
+                        st.error("거래처명을 입력하세요.")
+        
+        with c2:
+            st.markdown("#### 등록된 계약 목록")
+            if st.session_state.contracts:
+                c_data = []
+                for name, specs in st.session_state.contracts.items():
+                    row = specs.copy()
+                    row['Contractor'] = name
+                    c_data.append(row)
+                
+                df_c = pd.DataFrame(c_data)
+                df_c = df_c[['Contractor', 'av', 'water', 'total_cl', 'p', 'metal']]
+                st.dataframe(df_c, hide_index=True, use_container_width=True)
+                
+                d_target = st.selectbox("삭제할 거래처", ["선택"] + list(st.session_state.contracts.keys()))
+                if st.button("계약 삭제"):
+                    if d_target != "선택":
+                        del st.session_state.contracts[d_target]
+                        save_contracts_state()
+                        st.success("삭제 완료")
+                        st.rerun()
+            else:
+                st.write("등록된 계약이 없습니다.")
+
+# ---------------------------------------------------------
+# 5. QC 오차 분석
+# ---------------------------------------------------------
+elif menu == "5. QC 오차 분석 (Analysis)":
+    st.subheader("📈 QC 오차 트렌드")
+    
+    if not st.session_state.qc_log:
+        st.info("데이터가 없습니다.")
+    else:
+        df = pd.DataFrame(st.session_state.qc_log)
+        with st.container(border=True):
+            tank_filter = st.selectbox("탱크 필터", df['탱크'].unique())
+            df_tank = df[df['탱크'] == tank_filter]
+            
+            if not df_tank.empty:
+                st.line_chart(df_tank, x='날짜', y='오차', color='항목')
+                st.caption("* 오차 = 실측값 - 예상값")
+            
+            with st.expander("상세 데이터 보기"):
+                st.dataframe(df, use_container_width=True)
