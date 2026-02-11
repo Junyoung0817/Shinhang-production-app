@@ -6,7 +6,6 @@ import time
 import random
 import json
 import os
-import textwrap
 
 # 1. 페이지 설정
 st.set_page_config(
@@ -65,7 +64,7 @@ st.markdown("""
     .q-label { color: #6c757d; font-weight: 500; }
     .q-val { font-weight: 700; color: #495057; }
     
-    /* Spec Out 경고 스타일 (빨간색, 굵게, 밑줄) */
+    /* Spec Out 경고 스타일 */
     .spec-out { 
         color: #e74c3c !important; 
         font-weight: 900 !important; 
@@ -255,7 +254,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 30.0 (Color Logic Fix)")
+    st.caption("Ver 30.1 (HTML Clean Fix)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -279,7 +278,7 @@ with st.sidebar:
         if st.button("데이터 생성"): generate_dummy_data(SPECS, DEFAULTS)
         if st.button("공장 초기화"): factory_reset()
 
-# 상단 헤더
+# 상단 헤더 (HTML Indent Issue 완벽 해결: 들여쓰기 제거)
 def render_header(data, selected_dt):
     current_month_str = selected_dt.strftime("%Y-%m")
     monthly_prod = 0.0
@@ -293,39 +292,39 @@ def render_header(data, selected_dt):
     utk_308 = data['UTK-308']['qty']
     utk_1106 = data['UTK-1106']['qty']
     
-    html_code = textwrap.dedent(f"""
-        <div style="background-color: white; padding: 20px 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); margin-bottom: 25px; border-top: 4px solid #e74c3c;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <h3 style="margin:0; color:#32325d;">2026 신항공장 생산 통합 시스템 (Pro)</h3>
-                    <span style="color:#8898aa; font-size:0.9rem;">Date: {DATE_KEY}</span>
-                </div>
-                <div style="text-align:right;">
-                    <span style="background:#d4edda; color:#155724; padding:5px 12px; border-radius:20px; font-size:0.85rem; font-weight:600;">● System Active</span>
-                </div>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; width: 100%; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e9ecef;">
-                <div style="border-right: 1px solid #eee; padding-right: 20px;">
-                    <div style="font-size: 0.9rem; color: #11cdef; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">● 월간 PTU 생산량</div>
-                    <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{monthly_prod:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
-                    <div style="font-size:0.8rem; color:#aaa; margin-top:5px;">(TK-710 + 720 합계)</div>
-                </div>
-                <div style="border-right: 1px solid #eee; padding-right: 20px;">
-                    <div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">TK-6101 (SHORE)</div>
-                    <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{tk_6101:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
-                </div>
-                <div style="border-right: 1px solid #eee; padding-right: 20px;">
-                    <div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">UTK-308 (SHORE)</div>
-                    <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{utk_308:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
-                </div>
-                <div>
-                    <div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">UTK-1106 (SHORE)</div>
-                    <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{utk_1106:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
-                </div>
-            </div>
-        </div>
-    """)
+    # [핵심 수정] 들여쓰기 없이 문자열 생성
+    html_code = f"""
+<div style="background-color:white; padding:20px 30px; border-radius:12px; box-shadow:0 4px 6px rgba(0,0,0,0.02); margin-bottom:25px; border-top:4px solid #e74c3c;">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div>
+<h3 style="margin:0; color:#32325d;">2026 신항공장 생산 통합 시스템 (Pro)</h3>
+<span style="color:#8898aa; font-size:0.9rem;">Date: {DATE_KEY}</span>
+</div>
+<div style="text-align:right;">
+<span style="background:#d4edda; color:#155724; padding:5px 12px; border-radius:20px; font-size:0.85rem; font-weight:600;">● System Active</span>
+</div>
+</div>
+<div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:20px; width:100%; margin-top:20px; padding-top:20px; border-top:1px solid #e9ecef;">
+<div style="border-right:1px solid #eee; padding-right:20px;">
+<div style="font-size:0.9rem; color:#11cdef; font-weight:600; text-transform:uppercase; margin-bottom:8px;">● 월간 PTU 생산량</div>
+<div style="font-size:1.8rem; font-weight:800; color:#32325d; line-height:1.2;">{monthly_prod:,.1f} <span style="font-size:1.0rem; color:#8898aa; font-weight:500;">Ton</span></div>
+<div style="font-size:0.8rem; color:#aaa; margin-top:5px;">(TK-710 + 720 합계)</div>
+</div>
+<div style="border-right:1px solid #eee; padding-right:20px;">
+<div style="font-size:0.9rem; color:#5e72e4; font-weight:600; text-transform:uppercase; margin-bottom:8px;">TK-6101 (SHORE)</div>
+<div style="font-size:1.8rem; font-weight:800; color:#32325d; line-height:1.2;">{tk_6101:,.1f} <span style="font-size:1.0rem; color:#8898aa; font-weight:500;">Ton</span></div>
+</div>
+<div style="border-right:1px solid #eee; padding-right:20px;">
+<div style="font-size:0.9rem; color:#5e72e4; font-weight:600; text-transform:uppercase; margin-bottom:8px;">UTK-308 (SHORE)</div>
+<div style="font-size:1.8rem; font-weight:800; color:#32325d; line-height:1.2;">{utk_308:,.1f} <span style="font-size:1.0rem; color:#8898aa; font-weight:500;">Ton</span></div>
+</div>
+<div>
+<div style="font-size:0.9rem; color:#5e72e4; font-weight:600; text-transform:uppercase; margin-bottom:8px;">UTK-1106 (SHORE)</div>
+<div style="font-size:1.8rem; font-weight:800; color:#32325d; line-height:1.2;">{utk_1106:,.1f} <span style="font-size:1.0rem; color:#8898aa; font-weight:500;">Ton</span></div>
+</div>
+</div>
+</div>
+"""
     st.markdown(html_code, unsafe_allow_html=True)
 
 render_header(TODAY_DATA, selected_date)
@@ -353,7 +352,6 @@ if menu == "1. 통합 대시보드 (Dashboard)":
         with cols[i % 3]:
             # 계약 체크
             contract_check = {}
-            # [수정됨] Shore Tank가 아니면 계약 선택 UI 자체를 표시하지 않음
             if spec['type'] == 'Shore':
                 c_list = list(st.session_state.contracts.keys())
                 if c_list:
@@ -363,9 +361,8 @@ if menu == "1. 통합 대시보드 (Dashboard)":
                 else:
                     st.caption("등록된 계약 없음")
 
-            # [수정됨] 스타일 함수: Shore Tank가 아닌 경우 아예 빈 문자열 반환 (빨간색 원천 차단)
             def get_val_style(val, key):
-                if spec['type'] != 'Shore': return '' # Shore Tank가 아니면 무조건 스타일 없음
+                if spec['type'] != 'Shore': return '' # Shore Tank 아니면 스타일 없음
                 
                 if contract_check and key in contract_check:
                     limit = contract_check[key]
@@ -379,57 +376,36 @@ if menu == "1. 통합 대시보드 (Dashboard)":
             st_p = get_val_style(d['p'], 'p')
             st_metal = get_val_style(d['metal'], 'metal')
             
-            # [수정됨] Total Cl에서 highlight-label 클래스 제거 -> 일반 q-label 사용
-            card_html = textwrap.dedent(f"""
-                <div class="tank-card">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div style="font-weight:bold; font-size:1.1rem; color:#32325d;">{spec['icon']} {t_name}</div>
-                        <span style="background:{spec['color']}20; color:{spec['color']}; padding:2px 8px; border-radius:4px; font-size:0.75rem; font-weight:700;">{spec['type']}</span>
-                    </div>
-                    <div style="margin-top:15px; margin-bottom:10px;">
-                        <div class="metric-value" style="font-size:1.5rem;">{d['qty']:,.1f} <span class="metric-unit">Ton</span></div>
-                    </div>
-                    <div style="margin-bottom:15px;">
-                        <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:3px; color:#8898aa;">
-                            <span>Level</span><span>{pct:.1f}%</span>
-                        </div>
-                        <div style="width:100%; background:#f6f9fc; height:6px; border-radius:10px;">
-                            <div style="width:{pct}%; background:{spec['color']}; height:6px; border-radius:10px;"></div>
-                        </div>
-                    </div>
-                    <div class="quality-grid">
-                        <div class="q-row">
-                            <span class="q-label">AV</span>
-                            <span class="q-val" style="{st_av}">{d['av']:.2f}</span>
-                        </div>
-                        <div class="q-row">
-                            <span class="q-label">Water</span>
-                            <span class="q-val" style="{st_water}">{d['water']:.1f}</span>
-                        </div>
-                        <div class="q-row">
-                            <span class="q-label">Total Cl</span>
-                            <span class="q-val" style="{st_cl}">{total_cl:.1f}</span>
-                        </div>
-                        <div class="q-row">
-                            <span class="q-label">Total Metal</span>
-                            <span class="q-val" style="{st_metal}">{d['metal']:.1f}</span>
-                        </div>
-                        <div class="q-row">
-                            <span class="q-label" style="font-size:0.8em; padding-left:10px;">└ Org Cl</span>
-                            <span class="q-val" style="font-size:0.8em;">{org_cl:.1f}</span>
-                        </div>
-                        <div class="q-row">
-                            <span class="q-label" style="font-size:0.8em; padding-left:10px;">└ InOrg Cl</span>
-                            <span class="q-val" style="font-size:0.8em;">{inorg_cl:.1f}</span>
-                        </div>
-                        <div class="q-row">
-                            <span class="q-label">P</span>
-                            <span class="q-val" style="{st_p}">{d['p']:.1f}</span>
-                        </div>
-                    </div>
-                </div>
-                <div style="margin-bottom:20px"></div>
-            """)
+            # [핵심 수정] 카드 HTML도 들여쓰기 제거
+            card_html = f"""
+<div class="tank-card">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div style="font-weight:bold; font-size:1.1rem; color:#32325d;">{spec['icon']} {t_name}</div>
+<span style="background:{spec['color']}20; color:{spec['color']}; padding:2px 8px; border-radius:4px; font-size:0.75rem; font-weight:700;">{spec['type']}</span>
+</div>
+<div style="margin-top:15px; margin-bottom:10px;">
+<div class="metric-value" style="font-size:1.5rem;">{d['qty']:,.1f} <span class="metric-unit">Ton</span></div>
+</div>
+<div style="margin-bottom:15px;">
+<div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:3px; color:#8898aa;">
+<span>Level</span><span>{pct:.1f}%</span>
+</div>
+<div style="width:100%; background:#f6f9fc; height:6px; border-radius:10px;">
+<div style="width:{pct}%; background:{spec['color']}; height:6px; border-radius:10px;"></div>
+</div>
+</div>
+<div class="quality-grid">
+<div class="q-row"><span class="q-label">AV</span><span class="q-val" style="{st_av}">{d['av']:.2f}</span></div>
+<div class="q-row"><span class="q-label">Water</span><span class="q-val" style="{st_water}">{d['water']:.1f}</span></div>
+<div class="q-row"><span class="q-label">Total Cl</span><span class="q-val" style="{st_cl}">{total_cl:.1f}</span></div>
+<div class="q-row"><span class="q-label">Total Metal</span><span class="q-val" style="{st_metal}">{d['metal']:.1f}</span></div>
+<div class="q-row"><span class="q-label" style="font-size:0.8em; padding-left:10px;">└ Org Cl</span><span class="q-val" style="font-size:0.8em;">{org_cl:.1f}</span></div>
+<div class="q-row"><span class="q-label" style="font-size:0.8em; padding-left:10px;">└ InOrg Cl</span><span class="q-val" style="font-size:0.8em;">{inorg_cl:.1f}</span></div>
+<div class="q-row"><span class="q-label">P</span><span class="q-val" style="{st_p}">{d['p']:.1f}</span></div>
+</div>
+</div>
+<div style="margin-bottom:20px"></div>
+"""
             st.markdown(card_html, unsafe_allow_html=True)
             
     with st.expander("📋 전체 데이터 테이블 보기"):
@@ -632,7 +608,7 @@ elif menu == "3. Lab 분석 보정 (Correction)":
                     save_db_state(); st.success("보정 완료"); st.rerun()
 
 # ---------------------------------------------------------
-# 4. 계약 품질 관리 (New Menu)
+# 4. 계약 품질 관리 (Contract)
 # ---------------------------------------------------------
 elif menu == "4. 계약 품질 관리 (Contract)":
     st.subheader("📑 거래처 계약 스펙 관리")
