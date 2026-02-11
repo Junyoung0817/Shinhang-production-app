@@ -140,7 +140,6 @@ def init_system():
         'UTK-308':  {'max': 5400, 'type': 'Shore',  'icon': '🚢', 'color': '#5e72e4'},
         'UTK-1106': {'max': 6650, 'type': 'Shore',  'icon': '🚢', 'color': '#5e72e4'}
     }
-    # 기본값에 inorg_cl 포함 확인
     default_vals = {'qty': 0.0, 'av': 0.0, 'water': 0.0, 'metal': 0.0, 'p': 0.0, 'org_cl': 0.0, 'inorg_cl': 0.0}
     
     if 'daily_db' not in st.session_state: st.session_state.daily_db = load_data_from_file()
@@ -247,7 +246,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 23.2 (Fix & Complete)")
+    st.caption("Ver 23.3 (Lab Correction Detail)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -481,7 +480,7 @@ elif menu == "2. 운영 실적 입력 (Input)":
                         save_db(); st.success("완료"); st.rerun()
 
 # ---------------------------------------------------------
-# 3. Lab 분석 보정
+# 3. Lab 분석 보정 (상세 보기 추가됨)
 # ---------------------------------------------------------
 elif menu == "3. Lab 분석 보정 (Correction)":
     
@@ -489,7 +488,7 @@ elif menu == "3. Lab 분석 보정 (Correction)":
         st.subheader("🧪 Lab 데이터 보정")
         st.markdown("실험실 분석 결과를 입력하면, **오차만큼 미래 데이터까지 자동 보정**됩니다.")
         
-        c1, c2 = st.columns(2)
+        c1, c2 = st.columns([1, 1])
         with c1:
             edit_date = st.date_input("분석(샘플링) 날짜", datetime.now() - timedelta(days=1))
             edit_key = edit_date.strftime("%Y-%m-%d")
@@ -501,11 +500,21 @@ elif menu == "3. Lab 분석 보정 (Correction)":
             target_tank = st.selectbox("대상 탱크", list(SPECS.keys()))
             curr = edit_data[target_tank]
             
-            st.info(f"**[{edit_key}] {target_tank} 전산값**\n\n재고: {curr['qty']:.1f} / AV: {curr['av']:.2f}")
+            st.markdown(f"###### 📊 {target_tank} 현재 전산값 (System Data)")
+            # [상세 표] 현재 모든 품질값 표시
+            sys_df = pd.DataFrame({
+                "항목": ["재고", "AV", "Water", "Org Cl", "InOrg Cl", "P", "Total Metal"],
+                "값": [
+                    f"{curr['qty']:.1f}", f"{curr['av']:.2f}", f"{curr['water']:.1f}",
+                    f"{curr['org_cl']:.1f}", f"{curr['inorg_cl']:.1f}",
+                    f"{curr['p']:.1f}", f"{curr['metal']:.1f}"
+                ]
+            })
+            st.dataframe(sys_df, hide_index=True, use_container_width=True)
 
         with c2:
             with st.form("correction_form"):
-                st.markdown("##### 실측값 입력")
+                st.markdown("##### 📝 실측값 입력 (Lab Data)")
                 n_qty = st.number_input("실측 재고", value=float(curr['qty']))
                 c_a, c_b = st.columns(2)
                 n_av = c_a.number_input("실측 AV", value=float(curr['av']), step=0.1, format="%.1f")
