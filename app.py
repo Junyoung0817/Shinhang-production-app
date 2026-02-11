@@ -123,6 +123,7 @@ def load_logs_from_file():
         try:
             with open(LOG_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+                # production key가 없을 경우 빈 딕셔너리 반환
                 return data.get('history', []), data.get('qc', []), data.get('production', {})
         except: return [], [], {}
     return [], [], {}
@@ -155,12 +156,16 @@ def init_system():
     }
     default_vals = {'qty': 0.0, 'av': 0.0, 'water': 0.0, 'metal': 0.0, 'p': 0.0, 'org_cl': 0.0, 'inorg_cl': 0.0}
     
-    if 'daily_db' not in st.session_state: st.session_state.daily_db = load_data_from_file()
-    if 'history_log' not in st.session_state:
+    # DB 초기화
+    if 'daily_db' not in st.session_state:
+        st.session_state.daily_db = load_data_from_file()
+    
+    # [수정됨] 로그 데이터 초기화 (키가 하나라도 없으면 다시 로드)
+    if ('history_log' not in st.session_state) or ('production_log' not in st.session_state):
         h, q, p = load_logs_from_file()
-        st.session_state.history_log = h
-        st.session_state.qc_log = q
-        st.session_state.production_log = p # 생산량 별도 기록 {날짜: 생산량}
+        if 'history_log' not in st.session_state: st.session_state.history_log = h
+        if 'qc_log' not in st.session_state: st.session_state.qc_log = q
+        if 'production_log' not in st.session_state: st.session_state.production_log = p
         
     return tank_specs, default_vals
 
@@ -197,7 +202,7 @@ def reset_today_data(date_key, specs, defaults):
 
 def generate_dummy_data(specs, defaults):
     base = datetime.now()
-    st.session_state.production_log = {} # 더미 생성 시 초기화
+    st.session_state.production_log = {} 
     
     for i in range(30, -1, -1):
         d_date = base - timedelta(days=i)
@@ -214,8 +219,6 @@ def generate_dummy_data(specs, defaults):
             new_data[t] = data
         
         st.session_state.daily_db[d_key] = new_data
-        
-        # 더미 생산량 (매일 조금씩 생산했다고 가정)
         st.session_state.production_log[d_key] = round(random.uniform(200, 400), 1)
         
     save_db(); save_logs(); st.toast("테스트 데이터 생성 완료"); time.sleep(0.5); st.rerun()
@@ -237,7 +240,6 @@ def log_action(date_key, action_type, desc, tanks_involved, current_db):
     })
     save_logs()
 
-# [NEW] 생산 실적 별도 기록 함수
 def log_production(date_key, amount):
     if date_key in st.session_state.production_log:
         st.session_state.production_log[date_key] += amount
@@ -281,7 +283,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 24.0 (Header & HTML Fix)")
+    st.caption("Ver 24.1 (Init Fix)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -304,21 +306,23 @@ with st.sidebar:
         if st.button("데이터 생성"): generate_dummy_data(SPECS, DEFAULTS)
         if st.button("공장 초기화"): factory_reset()
 
-# [수정됨] 상단 헤더: 월간 생산량 및 개별 탱크 재고
+# 상단 헤더
 def render_header(data, selected_dt):
-    # 1. 월간 PTU 생산량 계산 (이번달 1일 ~ 현재 선택일까지)
+    # 1. 월간 PTU 생산량 계산
     current_month_str = selected_dt.strftime("%Y-%m")
     monthly_prod = 0.0
-    for d_key, amount in st.session_state.production_log.items():
-        if d_key.startswith(current_month_str) and d_key <= DATE_KEY:
-            monthly_prod += amount
+    
+    # production_log가 없는 경우 대비 (방어 코드)
+    if 'production_log' in st.session_state:
+        for d_key, amount in st.session_state.production_log.items():
+            if d_key.startswith(current_month_str) and d_key <= DATE_KEY:
+                monthly_prod += amount
             
     # 2. Shore Tank 개별 재고
     tk_6101 = data['TK-6101']['qty']
     utk_308 = data['UTK-308']['qty']
     utk_1106 = data['UTK-1106']['qty']
     
-    # [중요] HTML 들여쓰기 제거
     html_code = f"""
 <div class="summary-header">
     <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -376,7 +380,6 @@ if menu == "1. 통합 대시보드 (Dashboard)":
         total_cl = org_cl + inorg_cl
         
         with cols[i % 3]:
-            # [중요] HTML 들여쓰기 제거
             card_html = f"""
 <div class="tank-card">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -500,7 +503,6 @@ elif menu == "2. 운영 실적 입력 (Input)":
                     if st.form_submit_button("저장 (Save)", type="primary"):
                         log_action(DATE_KEY, "생산", f"2차 {dest} +{p_q}", ['TK-310', dest], TODAY_DATA)
                         
-                        # [NEW] 생산 실적 기록 (PTU 생산량)
                         log_production(DATE_KEY, p_q)
                         
                         src = TODAY_DATA['TK-310']; tgt = TODAY_DATA[dest]
