@@ -6,6 +6,7 @@ import time
 import random
 import json
 import os
+import textwrap
 
 # 1. 페이지 설정
 st.set_page_config(
@@ -64,6 +65,13 @@ st.markdown("""
     .q-label { color: #6c757d; font-weight: 500; }
     .q-val { font-weight: 700; color: #495057; }
     
+    /* Spec Out 경고 스타일 */
+    .spec-out { 
+        color: #e74c3c !important; 
+        font-weight: 900 !important; 
+        text-decoration: underline;
+    }
+
     .stButton>button {
         width: 100%;
         border-radius: 8px;
@@ -167,6 +175,7 @@ def find_past_data(current_date_str):
 def generate_dummy_data(specs, defaults):
     base = datetime.now()
     st.session_state.production_log = {} 
+    
     for i in range(30, -1, -1):
         d_date = base - timedelta(days=i)
         d_key = d_date.strftime("%Y-%m-%d")
@@ -182,6 +191,7 @@ def generate_dummy_data(specs, defaults):
             new_data[t] = data
         st.session_state.daily_db[d_key] = new_data
         st.session_state.production_log[d_key] = round(random.uniform(200, 400), 1)
+        
     save_db_state(); save_logs_state(); st.toast("테스트 데이터 생성 완료"); time.sleep(0.5); st.rerun()
 
 def factory_reset():
@@ -245,7 +255,7 @@ SPECS, DEFAULTS = init_system()
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2823/2823528.png", width=50)
     st.title("신항공장 생산관리")
-    st.caption("Ver 31.2 (Layout Final Fix)")
+    st.caption("Ver 32.0 (QC Graph Upgrade)")
     
     st.markdown("---")
     selected_date = st.date_input("📆 기준 날짜", datetime.now())
@@ -265,7 +275,6 @@ with st.sidebar:
     if st.session_state.history_log:
         if st.button("↩️ 실행 취소 (Undo)"): undo_last_action(TODAY_DATA)
     
-    # [백업/복구 시스템]
     with st.expander("🛠️ 시스템 관리 (백업/복구)"):
         st.markdown("##### 💾 데이터 백업")
         
@@ -305,10 +314,11 @@ with st.sidebar:
         if st.button("데이터 생성 (Test)"): generate_dummy_data(SPECS, DEFAULTS)
         if st.button("공장 초기화", type="primary"): factory_reset()
 
-# 상단 헤더 (HTML 100% 한 줄 처리 - 들여쓰기/줄바꿈 완전 제거)
+# 상단 헤더
 def render_header(data, selected_dt):
     current_month_str = selected_dt.strftime("%Y-%m")
     monthly_prod = 0.0
+    
     if 'production_log' in st.session_state:
         for d_key, amount in st.session_state.production_log.items():
             if d_key.startswith(current_month_str) and d_key <= DATE_KEY:
@@ -318,18 +328,39 @@ def render_header(data, selected_dt):
     utk_308 = data['UTK-308']['qty']
     utk_1106 = data['UTK-1106']['qty']
     
-    # [핵심] 줄바꿈 없는 한 줄 문자열 연결 (Explicit String Concatenation)
-    html_code = ""
-    html_code += '<div style="background-color: white; padding: 20px 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); margin-bottom: 25px; border-top: 4px solid #e74c3c;">'
-    html_code += '<div style="display: flex; justify-content: space-between; align-items: center;">'
-    html_code += f'<div><h3 style="margin:0; color:#32325d;">2026 신항공장 생산 통합 시스템 (Pro)</h3><span style="color:#8898aa; font-size:0.9rem;">Date: {DATE_KEY}</span></div>'
-    html_code += '<div style="text-align:right;"><span style="background:#d4edda; color:#155724; padding:5px 12px; border-radius:20px; font-size:0.85rem; font-weight:600;">● System Active</span></div></div>'
-    html_code += '<div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; width: 100%; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e9ecef;">'
-    html_code += f'<div style="border-right: 1px solid #eee; padding-right: 20px;"><div style="font-size: 0.9rem; color: #11cdef; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">● 월간 PTU 생산량</div><div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{monthly_prod:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div><div style="font-size:0.8rem; color:#aaa; margin-top:5px;">(TK-710 + 720 합계)</div></div>'
-    html_code += f'<div style="border-right: 1px solid #eee; padding-right: 20px;"><div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">TK-6101 (SHORE)</div><div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{tk_6101:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div></div>'
-    html_code += f'<div style="border-right: 1px solid #eee; padding-right: 20px;"><div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">UTK-308 (SHORE)</div><div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{utk_308:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div></div>'
-    html_code += f'<div><div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">UTK-1106 (SHORE)</div><div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{utk_1106:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div></div>'
-    html_code += '</div></div>'
+    html_code = textwrap.dedent(f"""
+        <div style="background-color: white; padding: 20px 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); margin-bottom: 25px; border-top: 4px solid #e74c3c;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin:0; color:#32325d;">2026 신항공장 생산 통합 시스템 (Pro)</h3>
+                    <span style="color:#8898aa; font-size:0.9rem;">Date: {DATE_KEY}</span>
+                </div>
+                <div style="text-align:right;">
+                    <span style="background:#d4edda; color:#155724; padding:5px 12px; border-radius:20px; font-size:0.85rem; font-weight:600;">● System Active</span>
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; width: 100%; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e9ecef;">
+                <div style="border-right: 1px solid #eee; padding-right: 20px;">
+                    <div style="font-size: 0.9rem; color: #11cdef; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">● 월간 PTU 생산량</div>
+                    <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{monthly_prod:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
+                    <div style="font-size:0.8rem; color:#aaa; margin-top:5px;">(TK-710 + 720 합계)</div>
+                </div>
+                <div style="border-right: 1px solid #eee; padding-right: 20px;">
+                    <div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">TK-6101 (SHORE)</div>
+                    <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{tk_6101:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
+                </div>
+                <div style="border-right: 1px solid #eee; padding-right: 20px;">
+                    <div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">UTK-308 (SHORE)</div>
+                    <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{utk_308:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
+                </div>
+                <div>
+                    <div style="font-size: 0.9rem; color: #5e72e4; font-weight: 600; text-transform: uppercase; margin-bottom: 8px;">UTK-1106 (SHORE)</div>
+                    <div style="font-size: 1.8rem; font-weight: 800; color: #32325d; line-height: 1.2;">{utk_1106:,.1f} <span style="font-size: 1.0rem; color: #8898aa; font-weight: 500;">Ton</span></div>
+                </div>
+            </div>
+        </div>
+    """)
     st.markdown(html_code, unsafe_allow_html=True)
 
 render_header(TODAY_DATA, selected_date)
@@ -378,21 +409,56 @@ if menu == "1. 통합 대시보드 (Dashboard)":
             st_p = get_val_style(d['p'], 'p')
             st_metal = get_val_style(d['metal'], 'metal')
             
-            # [수정] 카드 HTML도 한 줄 연결
-            card_html = ""
-            card_html += '<div class="tank-card">'
-            card_html += f'<div style="display:flex; justify-content:space-between; align-items:center;"><div style="font-weight:bold; font-size:1.1rem; color:#32325d;">{spec["icon"]} {t_name}</div><span style="background:{spec["color"]}20; color:{spec["color"]}; padding:2px 8px; border-radius:4px; font-size:0.75rem; font-weight:700;">{spec["type"]}</span></div>'
-            card_html += f'<div style="margin-top:15px; margin-bottom:10px;"><div class="metric-value" style="font-size:1.5rem;">{d["qty"]:.1f} <span class="metric-unit">Ton</span></div></div>'
-            card_html += f'<div style="margin-bottom:15px;"><div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:3px; color:#8898aa;"><span>Level</span><span>{pct:.1f}%</span></div><div style="width:100%; background:#f6f9fc; height:6px; border-radius:10px;"><div style="width:{pct}%; background:{spec["color"]}; height:6px; border-radius:10px;"></div></div></div>'
-            card_html += '<div class="quality-grid">'
-            card_html += f'<div class="q-row"><span class="q-label">AV</span><span class="q-val" style="{st_av}">{d["av"]:.2f}</span></div>'
-            card_html += f'<div class="q-row"><span class="q-label">Water</span><span class="q-val" style="{st_water}">{d["water"]:.1f}</span></div>'
-            card_html += f'<div class="q-row"><span class="q-label">Total Cl</span><span class="q-val" style="{st_cl}">{total_cl:.1f}</span></div>'
-            card_html += f'<div class="q-row"><span class="q-label">Total Metal</span><span class="q-val" style="{st_metal}">{d["metal"]:.1f}</span></div>'
-            card_html += f'<div class="q-row"><span class="q-label" style="font-size:0.8em; padding-left:10px;">└ Org Cl</span><span class="q-val" style="font-size:0.8em;">{org_cl:.1f}</span></div>'
-            card_html += f'<div class="q-row"><span class="q-label" style="font-size:0.8em; padding-left:10px;">└ InOrg Cl</span><span class="q-val" style="font-size:0.8em;">{inorg_cl:.1f}</span></div>'
-            card_html += f'<div class="q-row"><span class="q-label">P</span><span class="q-val" style="{st_p}">{d["p"]:.1f}</span></div>'
-            card_html += '</div></div><div style="margin-bottom:20px"></div>'
+            card_html = textwrap.dedent(f"""
+                <div class="tank-card">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div style="font-weight:bold; font-size:1.1rem; color:#32325d;">{spec['icon']} {t_name}</div>
+                        <span style="background:{spec['color']}20; color:{spec['color']}; padding:2px 8px; border-radius:4px; font-size:0.75rem; font-weight:700;">{spec['type']}</span>
+                    </div>
+                    <div style="margin-top:15px; margin-bottom:10px;">
+                        <div class="metric-value" style="font-size:1.5rem;">{d['qty']:,.1f} <span class="metric-unit">Ton</span></div>
+                    </div>
+                    <div style="margin-bottom:15px;">
+                        <div style="display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:3px; color:#8898aa;">
+                            <span>Level</span><span>{pct:.1f}%</span>
+                        </div>
+                        <div style="width:100%; background:#f6f9fc; height:6px; border-radius:10px;">
+                            <div style="width:{pct}%; background:{spec['color']}; height:6px; border-radius:10px;"></div>
+                        </div>
+                    </div>
+                    <div class="quality-grid">
+                        <div class="q-row">
+                            <span class="q-label">AV</span>
+                            <span class="q-val" style="{st_av}">{d['av']:.2f}</span>
+                        </div>
+                        <div class="q-row">
+                            <span class="q-label">Water</span>
+                            <span class="q-val" style="{st_water}">{d['water']:.1f}</span>
+                        </div>
+                        <div class="q-row">
+                            <span class="q-label">Total Cl</span>
+                            <span class="q-val" style="{st_cl}">{total_cl:.1f}</span>
+                        </div>
+                        <div class="q-row">
+                            <span class="q-label">Total Metal</span>
+                            <span class="q-val" style="{st_metal}">{d['metal']:.1f}</span>
+                        </div>
+                        <div class="q-row">
+                            <span class="q-label" style="font-size:0.8em; padding-left:10px;">└ Org Cl</span>
+                            <span class="q-val" style="font-size:0.8em;">{org_cl:.1f}</span>
+                        </div>
+                        <div class="q-row">
+                            <span class="q-label" style="font-size:0.8em; padding-left:10px;">└ InOrg Cl</span>
+                            <span class="q-val" style="font-size:0.8em;">{inorg_cl:.1f}</span>
+                        </div>
+                        <div class="q-row">
+                            <span class="q-label">P</span>
+                            <span class="q-val" style="{st_p}">{d['p']:.1f}</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-bottom:20px"></div>
+            """)
             st.markdown(card_html, unsafe_allow_html=True)
             
     with st.expander("📋 전체 데이터 테이블 보기"):
@@ -649,7 +715,7 @@ elif menu == "4. 계약 품질 관리 (Contract)":
                 st.write("등록된 계약이 없습니다.")
 
 # ---------------------------------------------------------
-# 5. QC 오차 분석
+# 5. QC 오차 분석 (Improved with Filters)
 # ---------------------------------------------------------
 elif menu == "5. QC 오차 분석 (Analysis)":
     st.subheader("📈 QC 오차 트렌드")
@@ -658,13 +724,31 @@ elif menu == "5. QC 오차 분석 (Analysis)":
         st.info("데이터가 없습니다.")
     else:
         df = pd.DataFrame(st.session_state.qc_log)
+        
+        # [NEW] 필터링 기능 강화
         with st.container(border=True):
-            tank_filter = st.selectbox("탱크 필터", df['탱크'].unique())
-            df_tank = df[df['탱크'] == tank_filter]
+            col_filter1, col_filter2 = st.columns(2)
+            with col_filter1:
+                tank_filter = st.selectbox("탱크 선택", df['탱크'].unique())
+            with col_filter2:
+                # 항목 다중 선택 (Default: 모든 항목)
+                all_items = df['항목'].unique()
+                item_filters = st.multiselect("항목 선택 (Multi-Select)", all_items, default=all_items)
             
-            if not df_tank.empty:
-                st.line_chart(df_tank, x='날짜', y='오차', color='항목')
-                st.caption("* 오차 = 실측값 - 예상값")
+            # 필터링 적용
+            df_chart = df[(df['탱크'] == tank_filter) & (df['항목'].isin(item_filters))]
             
-            with st.expander("상세 데이터 보기"):
-                st.dataframe(df, use_container_width=True)
+            if not df_chart.empty:
+                # 그래프 표시
+                st.line_chart(df_chart, x='날짜', y='오차', color='항목')
+                st.caption("* 양수(+)는 예측보다 높음 / 음수(-)는 예측보다 낮음")
+                
+                # [NEW] 히트맵 스타일의 데이터 테이블
+                st.markdown("##### 📋 상세 데이터 (오차 히트맵)")
+                # Pandas Styler를 사용하여 오차 절대값이 클수록 배경색을 진하게
+                st.dataframe(
+                    df_chart.style.background_gradient(subset=['오차'], cmap='coolwarm', vmin=-5, vmax=5),
+                    use_container_width=True
+                )
+            else:
+                st.warning("선택된 조건에 맞는 데이터가 없습니다.")
